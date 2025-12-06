@@ -1,0 +1,198 @@
+# Claude Context for Skeleton MCP Server
+
+This document provides context and guidelines for Claude when working with this MCP server project.
+
+## Project Overview
+
+This is a skeleton MCP (Model Context Protocol) server built with Python and FastMCP. It serves as a template for creating new MCP servers that can integrate with Claude Desktop and other MCP clients.
+
+## Technology Stack
+
+- **Language**: Python 3.10+
+- **Framework**: FastMCP
+- **HTTP Client**: requests
+- **Package Manager**: uv
+- **Testing**: pytest, pytest-asyncio
+- **Linting**: ruff
+- **Containerization**: Docker
+
+## Project Structure
+
+```
+src/skeleton_mcp/
+├── server.py     # Main entry point, tool registration
+├── client.py     # API client for backend communication
+├── types.py      # TypedDict definitions for type safety
+├── api/          # Domain-specific API modules
+│   └── example.py
+└── utils/        # Utility functions
+```
+
+## Key Patterns
+
+### Tool Registration
+
+Tools are registered in `server.py` using the `@mcp.tool()` decorator:
+
+```python
+@mcp.tool()
+async def my_tool(param: str) -> dict:
+    """Tool description shown to clients."""
+    return {"result": "value"}
+```
+
+Or by importing from API modules:
+
+```python
+from .api import my_module
+mcp.tool()(my_module.my_function)
+```
+
+### API Module Structure
+
+Each API module in `src/skeleton_mcp/api/` should:
+
+1. Define async functions that perform specific operations
+2. Include comprehensive docstrings (these become tool descriptions)
+3. Use type hints for all parameters and return values
+4. Handle errors gracefully with informative messages
+
+Example:
+
+```python
+async def get_resource(resource_id: str) -> dict:
+    """
+    Get a resource by its ID.
+
+    Args:
+        resource_id: The unique identifier of the resource
+
+    Returns:
+        The resource data
+
+    Raises:
+        ValueError: If the resource is not found
+    """
+    # Implementation here
+```
+
+### Type Definitions
+
+Use TypedDict classes in `types.py` for structured data:
+
+```python
+class ResourceData(TypedDict):
+    id: str
+    name: str
+    description: str | None
+```
+
+### Error Handling
+
+- Raise `ValueError` for invalid input or not found errors
+- Raise `RuntimeError` for server/API errors
+- Include descriptive error messages
+
+## Development Workflow
+
+### Running the Server
+
+```bash
+uv run skeleton-mcp
+```
+
+### Running Tests
+
+```bash
+uv run pytest -v
+```
+
+### Linting
+
+```bash
+uv run ruff check src/ tests/
+uv run ruff format src/ tests/
+```
+
+### Building
+
+```bash
+uv build
+```
+
+## Coding Standards
+
+1. **Async by default**: All tool functions should be async
+2. **Type everything**: Use type hints for parameters, returns, and variables
+3. **Document thoroughly**: Docstrings are exposed to MCP clients
+4. **Test comprehensively**: Each API function should have tests
+5. **Handle errors gracefully**: Provide informative error messages
+
+## Adding New Features
+
+When adding new functionality:
+
+1. Create a new module in `src/skeleton_mcp/api/`
+2. Define async functions with proper docstrings
+3. Add TypedDict definitions in `types.py` if needed
+4. Register tools in `server.py`
+5. Write tests in `tests/`
+6. Update this documentation if patterns change
+
+## Common Tasks
+
+### Add a new API endpoint/tool
+
+1. Create function in appropriate `api/` module
+2. Add types in `types.py`
+3. Register in `server.py`: `mcp.tool()(module.function)`
+4. Write tests
+
+### Add a new resource
+
+Resources provide read-only data access:
+
+```python
+@mcp.resource("myserver://resource-name")
+async def get_resource() -> str:
+    """Resource description."""
+    return "resource content"
+```
+
+### Add a new prompt
+
+Prompts are templates for common operations:
+
+```python
+@mcp.prompt()
+def my_prompt() -> str:
+    """Prompt description."""
+    return "Prompt template text..."
+```
+
+## Environment Variables
+
+Configure in `.env`:
+
+- `API_KEY`: Authentication key for backend API
+- `API_BASE_URL`: Base URL for API requests
+- `API_TIMEOUT`: Request timeout in seconds
+- `DEBUG`: Enable debug logging
+
+## Troubleshooting
+
+### Server won't start
+
+1. Check that all dependencies are installed: `uv sync`
+2. Verify `.env` file exists and has required variables
+3. Check for syntax errors: `uv run python -m py_compile src/skeleton_mcp/server.py`
+
+### Tests failing
+
+1. Ensure test dependencies are installed: `uv sync`
+2. Run with verbose output: `uv run pytest -v --tb=long`
+
+### Docker issues
+
+1. Rebuild image: `docker compose build --no-cache`
+2. Check logs: `docker compose logs -f`
