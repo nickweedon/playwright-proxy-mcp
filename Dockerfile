@@ -95,8 +95,13 @@ COPY --from=filtered-source /filtered /workspace
 # Install production dependencies
 RUN uv sync --frozen --no-dev 2>/dev/null || uv sync --no-dev
 
-# Install Playwright browsers (chromium by default)
-RUN npx playwright@latest install chromium --with-deps
+# Pre-install @playwright/mcp and its Playwright browsers
+# This ensures browser versions match the @playwright/mcp requirements
+# We must run 'npx playwright install' from within the @playwright/mcp package
+# to ensure the correct playwright version installs its matching browsers
+RUN npm install -g @playwright/mcp@latest && \
+    cd /usr/lib/node_modules/@playwright/mcp && \
+    npx playwright install chromium --with-deps
 
 # Create directories for blob storage and playwright output
 RUN mkdir -p /mnt/blob-storage /workspace/playwright-output
@@ -171,9 +176,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libmagic1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Playwright browsers (chromium by default) for the subprocess
-# This needs to be done at system level so npx playwright can find them
-RUN npx playwright@latest install chromium --with-deps
+# Pre-install @playwright/mcp and its Playwright browsers
+# This ensures browser versions match the @playwright/mcp requirements
+# We must run 'npx playwright install' from within the @playwright/mcp package
+# to ensure the correct playwright version installs its matching browsers
+RUN npm install -g @playwright/mcp@latest && \
+    cd /usr/lib/node_modules/@playwright/mcp && \
+    npx playwright install chromium --with-deps
 
 # Create directories for blob storage and playwright output
 RUN mkdir -p /mnt/blob-storage /workspace/playwright-output
