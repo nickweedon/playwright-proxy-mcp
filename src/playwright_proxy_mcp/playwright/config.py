@@ -96,7 +96,7 @@ def load_playwright_config() -> PlaywrightConfig:
     config: PlaywrightConfig = {
         "browser": os.getenv("PLAYWRIGHT_BROWSER", "chromium"),
         "headless": _get_bool_env("PLAYWRIGHT_HEADLESS", True),
-        "isolated": _get_bool_env("PLAYWRIGHT_ISOLATED", False),
+        "isolated": _get_bool_env("PLAYWRIGHT_ISOLATED", True),
         "caps": os.getenv("PLAYWRIGHT_CAPS", "vision,pdf"),
         "save_session": _get_bool_env("PLAYWRIGHT_SAVE_SESSION", True),
         "save_trace": _get_bool_env("PLAYWRIGHT_SAVE_TRACE", False),
