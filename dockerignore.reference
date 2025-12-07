@@ -19,7 +19,6 @@ venv/
 .pytest_cache/
 .coverage
 htmlcov/
-tests/
 
 # IDEs
 .idea/
@@ -27,6 +26,7 @@ tests/
 
 # Documentation
 docs/
+CLAUDE.md
 *.md
 !README.md
 
