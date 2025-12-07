@@ -46,7 +46,9 @@ async def test_call_playwright_tool_no_process():
     """Test calling playwright tool when process is not initialized."""
     mock_client = Mock()
     mock_client.is_healthy.return_value = True
-    mock_client.get_process.return_value = None
+    mock_client.call_tool = AsyncMock(
+        side_effect=RuntimeError("Playwright subprocess not properly initialized")
+    )
 
     with patch("playwright_proxy_mcp.server.proxy_client", mock_client):
         with pytest.raises(RuntimeError, match="not properly initialized"):
@@ -56,105 +58,51 @@ async def test_call_playwright_tool_no_process():
 @pytest.mark.asyncio
 async def test_call_playwright_tool_success():
     """Test successful playwright tool call."""
-    # Create mock process with stdin/stdout
-    mock_stdin = Mock()
-    mock_stdin.write = Mock()
-    mock_stdin.drain = AsyncMock()
-
-    mock_stdout = Mock()
-    response_data = {
-        "jsonrpc": "2.0",
-        "id": 123,
-        "result": {"status": "success", "data": "value"},
-    }
-    mock_stdout.readline = AsyncMock(
-        return_value=(json.dumps(response_data) + "\n").encode("utf-8")
-    )
-
-    mock_process = Mock()
-    mock_process.stdin = mock_stdin
-    mock_process.stdout = mock_stdout
-
     mock_client = Mock()
     mock_client.is_healthy.return_value = True
-    mock_client.get_process.return_value = mock_process
-    mock_client.transform_response = AsyncMock(
+    mock_client.call_tool = AsyncMock(
         return_value={"status": "success", "data": "transformed"}
     )
 
     with patch("playwright_proxy_mcp.server.proxy_client", mock_client):
-        result = await _call_playwright_tool("navigate", {"url": "https://example.com"})
+        # Use playwright_ prefix to test the mapping
+        result = await _call_playwright_tool("playwright_navigate", {"url": "https://example.com"})
 
         assert result == {"status": "success", "data": "transformed"}
 
-        # Verify request was sent
-        mock_stdin.write.assert_called_once()
-        mock_stdin.drain.assert_called_once()
-
-        # Verify transformation was called
-        mock_client.transform_response.assert_called_once()
+        # Verify call_tool was called with the correct tool name
+        mock_client.call_tool.assert_called_once_with(
+            "browser_navigate", {"url": "https://example.com"}
+        )
 
 
 @pytest.mark.asyncio
 async def test_call_playwright_tool_strips_prefix():
-    """Test that playwright_ prefix is stripped from tool name."""
-    mock_stdin = Mock()
-    mock_stdin.write = Mock()
-    mock_stdin.drain = AsyncMock()
-
-    mock_stdout = Mock()
-    response_data = {"jsonrpc": "2.0", "id": 123, "result": {}}
-    mock_stdout.readline = AsyncMock(
-        return_value=(json.dumps(response_data) + "\n").encode("utf-8")
-    )
-
-    mock_process = Mock()
-    mock_process.stdin = mock_stdin
-    mock_process.stdout = mock_stdout
-
+    """Test that playwright_ prefix is mapped to browser_ prefix."""
     mock_client = Mock()
     mock_client.is_healthy.return_value = True
-    mock_client.get_process.return_value = mock_process
-    mock_client.transform_response = AsyncMock(return_value={})
+    mock_client.call_tool = AsyncMock(return_value={})
 
     with patch("playwright_proxy_mcp.server.proxy_client", mock_client):
         await _call_playwright_tool("playwright_navigate", {"url": "https://example.com"})
 
-        # Check the JSON-RPC request that was sent
-        call_args = mock_stdin.write.call_args[0][0]
-        request = json.loads(call_args.decode("utf-8"))
-
-        # Tool name should be without playwright_ prefix
-        assert request["params"]["name"] == "navigate"
+        # Tool name should be mapped to browser_navigate
+        mock_client.call_tool.assert_called_once_with(
+            "browser_navigate", {"url": "https://example.com"}
+        )
 
 
 @pytest.mark.asyncio
 async def test_call_playwright_tool_error_response():
     """Test handling of error response from playwright."""
-    mock_stdin = Mock()
-    mock_stdin.write = Mock()
-    mock_stdin.drain = AsyncMock()
-
-    mock_stdout = Mock()
-    response_data = {
-        "jsonrpc": "2.0",
-        "id": 123,
-        "error": {"code": -1, "message": "Navigation failed"},
-    }
-    mock_stdout.readline = AsyncMock(
-        return_value=(json.dumps(response_data) + "\n").encode("utf-8")
-    )
-
-    mock_process = Mock()
-    mock_process.stdin = mock_stdin
-    mock_process.stdout = mock_stdout
-
     mock_client = Mock()
     mock_client.is_healthy.return_value = True
-    mock_client.get_process.return_value = mock_process
+    mock_client.call_tool = AsyncMock(
+        side_effect=RuntimeError("MCP error: {'code': -1, 'message': 'Navigation failed'}")
+    )
 
     with patch("playwright_proxy_mcp.server.proxy_client", mock_client):
-        with pytest.raises(RuntimeError, match="Playwright tool error"):
+        with pytest.raises(RuntimeError, match="MCP error"):
             await _call_playwright_tool("navigate", {"url": "https://example.com"})
 
 

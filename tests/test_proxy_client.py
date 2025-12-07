@@ -16,7 +16,16 @@ def mock_process_manager():
     manager.start = AsyncMock()
     manager.stop = AsyncMock()
     manager.is_healthy = Mock(return_value=True)
-    manager.process = Mock()
+
+    # Create mock process with stdin/stdout
+    mock_process = Mock()
+    mock_process.stdin = Mock()
+    mock_process.stdin.write = Mock()
+    mock_process.stdin.drain = AsyncMock()
+    mock_process.stdout = Mock()
+    mock_process.stdout.readline = AsyncMock(return_value=b'')
+
+    manager.process = mock_process
     return manager
 
 
@@ -50,15 +59,25 @@ class TestPlaywrightProxyClient:
         """Test starting the proxy client."""
         config = {"browser": "chromium"}
 
+        # Mock the internal async methods
+        proxy_client._initialize_mcp = AsyncMock()
+        proxy_client._discover_tools = AsyncMock()
+
         await proxy_client.start(config)
 
         assert proxy_client._started
         mock_process_manager.start.assert_called_once_with(config)
+        proxy_client._initialize_mcp.assert_called_once()
+        proxy_client._discover_tools.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_start_already_started(self, proxy_client):
         """Test starting when already started."""
         config = {"browser": "chromium"}
+
+        # Mock the internal async methods
+        proxy_client._initialize_mcp = AsyncMock()
+        proxy_client._discover_tools = AsyncMock()
 
         await proxy_client.start(config)
         await proxy_client.start(config)
@@ -70,6 +89,10 @@ class TestPlaywrightProxyClient:
     @pytest.mark.asyncio
     async def test_stop(self, proxy_client, mock_process_manager):
         """Test stopping the proxy client."""
+        # Mock the internal async methods
+        proxy_client._initialize_mcp = AsyncMock()
+        proxy_client._discover_tools = AsyncMock()
+
         # Start first
         await proxy_client.start({"browser": "chromium"})
 
