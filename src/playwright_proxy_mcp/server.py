@@ -154,9 +154,10 @@ async def _call_playwright_tool(tool_name: str, arguments: dict[str, Any]) -> An
     if not proxy_client or not proxy_client.is_healthy():
         raise RuntimeError("Playwright subprocess not running")
 
-    # Strip playwright_ prefix if present to get actual tool name
+    # Map playwright_ prefix to browser_ prefix used by playwright-mcp
+    # playwright-mcp tools use browser_ prefix (e.g., browser_navigate, browser_take_screenshot)
     actual_tool_name = (
-        tool_name.replace("playwright_", "", 1)
+        tool_name.replace("playwright_", "browser_", 1)
         if tool_name.startswith("playwright_")
         else tool_name
     )
