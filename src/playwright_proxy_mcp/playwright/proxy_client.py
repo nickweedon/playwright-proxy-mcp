@@ -160,6 +160,10 @@ class PlaywrightProxyClient:
             return
 
         try:
+            # Set a very large buffer limit for reading large JSON responses
+            # MCP responses can be very large (especially page snapshots)
+            process.stdout._limit = 10 * 1024 * 1024  # 10MB limit
+
             while True:
                 line = await process.stdout.readline()
                 if not line:

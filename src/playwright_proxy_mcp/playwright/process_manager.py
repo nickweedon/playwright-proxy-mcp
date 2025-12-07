@@ -136,9 +136,9 @@ class PlaywrightProcessManager:
         Returns:
             List of command and arguments
         """
-        # Use node to run the globally installed @playwright/mcp directly
-        # This ensures we use the exact version with browsers installed during build
-        command = ["node", "/usr/lib/node_modules/@playwright/mcp/dist/index.js"]
+        # Use npx to run @playwright/mcp
+        # npx will use the globally installed version since we installed it with npm install -g
+        command = ["npx", "@playwright/mcp"]
 
         # Browser
         if "browser" in config:
