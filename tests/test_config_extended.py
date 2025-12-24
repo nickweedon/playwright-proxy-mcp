@@ -2,8 +2,6 @@
 Extended tests for configuration loading
 """
 
-import pytest
-
 from playwright_proxy_mcp.playwright.config import load_blob_config, load_playwright_config
 
 

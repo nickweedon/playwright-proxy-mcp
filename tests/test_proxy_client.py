@@ -23,7 +23,7 @@ def mock_process_manager():
     mock_process.stdin.write = Mock()
     mock_process.stdin.drain = AsyncMock()
     mock_process.stdout = Mock()
-    mock_process.stdout.readline = AsyncMock(return_value=b'')
+    mock_process.stdout.readline = AsyncMock(return_value=b"")
 
     manager.process = mock_process
     return manager

@@ -83,17 +83,13 @@ class PlaywrightBlobManager:
             binary_data = base64.b64decode(data_part)
 
             # Upload to blob storage
-            result = self.storage.upload_blob(
-                data=binary_data, filename=filename, tags=tags or []
-            )
+            result = self.storage.upload_blob(data=binary_data, filename=filename, tags=tags or [])
 
             # Calculate metadata
             size_bytes = len(binary_data)
             expires_at = datetime.now() + timedelta(hours=self.config["ttl_hours"])
 
-            logger.info(
-                f"Stored blob {result['blob_id']} ({size_bytes} bytes, type: {mime_type})"
-            )
+            logger.info(f"Stored blob {result['blob_id']} ({size_bytes} bytes, type: {mime_type})")
 
             return {
                 "blob_id": result["blob_id"],

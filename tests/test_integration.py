@@ -4,7 +4,7 @@ Integration tests for key workflows
 
 import base64
 import tempfile
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import pytest
 

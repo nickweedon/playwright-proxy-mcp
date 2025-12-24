@@ -33,9 +33,7 @@ class BinaryInterceptionMiddleware:
         "playwright_download",
     }
 
-    def __init__(
-        self, blob_manager: PlaywrightBlobManager, size_threshold_kb: int = 50
-    ) -> None:
+    def __init__(self, blob_manager: PlaywrightBlobManager, size_threshold_kb: int = 50) -> None:
         """
         Initialize middleware.
 
@@ -50,9 +48,7 @@ class BinaryInterceptionMiddleware:
             f"Binary interception middleware initialized (threshold: {size_threshold_kb}KB)"
         )
 
-    async def intercept_response(
-        self, tool_name: str, response: Any
-    ) -> Any:
+    async def intercept_response(self, tool_name: str, response: Any) -> Any:
         """
         Intercept and potentially transform a tool response.
 
@@ -68,10 +64,7 @@ class BinaryInterceptionMiddleware:
             return response
 
         # Check if this tool produces binary data
-        should_check = (
-            tool_name in self.BINARY_TOOLS
-            or tool_name in self.CONDITIONAL_BINARY_TOOLS
-        )
+        should_check = tool_name in self.BINARY_TOOLS or tool_name in self.CONDITIONAL_BINARY_TOOLS
 
         if not should_check:
             return response

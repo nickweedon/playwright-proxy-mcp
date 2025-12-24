@@ -253,9 +253,7 @@ class PlaywrightProxyClient:
 
         logger.debug(f"Calling tool: {tool_name} with args: {arguments}")
 
-        result = await self._send_request(
-            "tools/call", {"name": tool_name, "arguments": arguments}
-        )
+        result = await self._send_request("tools/call", {"name": tool_name, "arguments": arguments})
 
         # Transform through middleware
         transformed_result = await self.transform_response(tool_name, result)

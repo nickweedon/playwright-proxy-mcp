@@ -1,7 +1,5 @@
 """Tests for playwright tool name mapping."""
 
-import pytest
-
 
 def test_tool_name_mapping():
     """Test that tool names are correctly mapped from playwright_ to browser_ prefix."""
@@ -47,9 +45,9 @@ def test_tool_name_mapping():
 
     # Verify all mapped tools exist in playwright-mcp
     for proxy_name, playwright_name in TOOL_NAME_MAP.items():
-        assert (
-            playwright_name in AVAILABLE_PLAYWRIGHT_TOOLS
-        ), f"Mapped tool '{playwright_name}' not found in playwright-mcp tools"
+        assert playwright_name in AVAILABLE_PLAYWRIGHT_TOOLS, (
+            f"Mapped tool '{playwright_name}' not found in playwright-mcp tools"
+        )
 
 
 def test_screenshot_mapping():

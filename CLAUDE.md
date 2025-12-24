@@ -4,7 +4,35 @@ This document provides context and guidelines for Claude when working with this 
 
 ## Project Overview
 
-This is a proxy server for Microsoft's playwright-mcp built with Python and FastMCP. It provides efficient handling of large binary data (screenshots, PDFs) through blob storage while maintaining full access to all playwright browser automation capabilities.
+This is a proxy server for Microsoft's playwright-mcp built with Python and FastMCP. It provides efficient handling of large binary data (screenshots, PDFs) by storing them as blobs and returning blob:// URIs. All blob retrieval is delegated to a separate MCP Resource Server, following mcp_mapped_resource_lib best practices.
+
+## Blob Storage Architecture
+
+This proxy server follows mcp_mapped_resource_lib best practices:
+
+### Responsibility Separation
+
+1. **This Proxy Server** (playwright-proxy-mcp):
+   - Creates blobs from large binary data (screenshots, PDFs)
+   - Returns blob:// URI references
+   - Handles blob storage lifecycle (TTL, cleanup)
+   - **DOES NOT** provide blob retrieval tools
+
+2. **Separate MCP Resource Server**:
+   - Retrieves blob data by blob:// URI
+   - Lists available blobs
+   - Deletes blobs
+   - See [mcp-mapped-resource-lib](https://github.com/nickweedon/mcp_mapped_resource_lib)
+
+### Why This Architecture?
+
+- **Clean separation**: Tools create data, resources retrieve it
+- **MCP compatibility**: Template resources cause issues with some clients
+- **Standard URIs**: blob:// URIs are portable across Resource Servers
+
+### Using Blob Data
+
+When you receive a blob:// URI from this proxy (e.g., `blob://1733577600-hash.png`), use a separate MCP Resource Server to retrieve the actual data. This proxy does NOT provide get_blob, list_blobs, or delete_blob tools.
 
 ## Technology Stack
 
@@ -29,9 +57,8 @@ src/playwright_proxy_mcp/
 │   ├── blob_manager.py   # Blob storage wrapper (mcp-mapped-resource-lib)
 │   ├── middleware.py     # Binary interception logic
 │   └── proxy_client.py   # Proxy client integration
-├── api/                   # MCP tools
-│   ├── __init__.py
-│   └── blob_tools.py     # Blob retrieval tools
+├── api/                   # MCP tools (currently empty)
+│   └── __init__.py
 └── utils/                 # Utility functions
 ```
 
@@ -96,9 +123,34 @@ class ResourceData(TypedDict):
 
 ### Error Handling
 
+- Use `ToolError` from FastMCP for client-facing errors in tool implementations
 - Raise `ValueError` for invalid input or not found errors
 - Raise `RuntimeError` for server/API errors
 - Include descriptive error messages
+
+```python
+from fastmcp import ToolError
+
+async def get_part(part_id: str) -> dict:
+    if not part_id:
+        raise ToolError("part_id is required")
+
+    try:
+        result = await api_call(part_id)
+        return result
+    except APIError as e:
+        raise ToolError(f"Failed to fetch part: {e}")
+```
+
+### FastMCP Documentation
+
+For detailed FastMCP implementation guidance, see:
+- [docs/FASTMCP_REFERENCE.md](docs/FASTMCP_REFERENCE.md) - Server implementation (tools, resources, prompts, context, middleware, authentication, deployment)
+- [docs/FASTMCP_SDK_REFERENCE.md](docs/FASTMCP_SDK_REFERENCE.md) - Python SDK reference (exceptions, settings, CLI, client, server modules, utilities)
+
+For additional information beyond what's covered in this project's documentation, refer to:
+- Official FastMCP documentation: https://gofastmcp.com
+- FastMCP GitHub repository: https://github.com/jlowin/fastmcp
 
 ## Development Workflow
 

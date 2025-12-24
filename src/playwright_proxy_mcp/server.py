@@ -8,7 +8,7 @@ This server:
 1. Runs playwright-mcp as a subprocess using npx
 2. Proxies all playwright browser automation tools
 3. Intercepts large binary responses and stores them as blobs
-4. Provides tools for blob retrieval and management
+4. Returns blob:// URIs for large binary data (retrieval delegated to MCP Resource Server)
 """
 
 import logging
@@ -17,7 +17,6 @@ from typing import Any
 
 from fastmcp import FastMCP
 
-from .api import blob_tools
 from .playwright import (
     BinaryInterceptionMiddleware,
     PlaywrightBlobManager,
@@ -62,15 +61,12 @@ async def lifespan_context(server):
 
         # Initialize blob storage
         blob_manager = PlaywrightBlobManager(blob_config)
-        blob_tools.set_blob_manager(blob_manager)
 
         # Initialize process manager
         process_manager = PlaywrightProcessManager()
 
         # Initialize middleware
-        middleware = BinaryInterceptionMiddleware(
-            blob_manager, blob_config["size_threshold_kb"]
-        )
+        middleware = BinaryInterceptionMiddleware(blob_manager, blob_config["size_threshold_kb"])
 
         # Initialize proxy client
         proxy_client = PlaywrightProxyClient(process_manager, middleware)
@@ -121,13 +117,10 @@ mcp = FastMCP(
     Large binary responses (>50KB by default) are automatically stored as blobs
     to reduce token usage.
 
-    When a tool returns a blob reference (e.g., blob://timestamp-hash.png),
-    use the get_blob(blob_id) tool to retrieve the actual binary data.
+    When a tool returns a blob reference (blob://timestamp-hash.png format),
+    use a separate MCP Resource Server to retrieve, list, or delete blobs.
+    This server only creates and returns blob:// URIs.
 
-    Available blob management tools:
-    - get_blob: Retrieve binary data by blob ID
-    - list_blobs: List available blobs with filtering
-    - delete_blob: Delete a blob from storage
     """,
     lifespan=lifespan_context,
 )
@@ -169,7 +162,7 @@ async def _call_playwright_tool(tool_name: str, arguments: dict[str, Any]) -> An
         tool_name,
         tool_name.replace("playwright_", "browser_", 1)
         if tool_name.startswith("playwright_")
-        else tool_name
+        else tool_name,
     )
 
     # Call tool through proxy client
@@ -196,20 +189,19 @@ async def playwright_navigate(url: str) -> dict[str, Any]:
 
 
 @mcp.tool()
-async def playwright_screenshot(
-    name: str | None = None, full_page: bool = False
-) -> dict[str, Any]:
+async def playwright_screenshot(name: str | None = None, full_page: bool = False) -> dict[str, Any]:
     """
     Take a screenshot of the current page.
 
-    Large screenshots are automatically stored as blobs.
+    Large screenshots are automatically stored as blobs and returned as blob:// URIs.
+    Use a separate MCP Resource Server to retrieve blob data.
 
     Args:
         name: Optional name for the screenshot
         full_page: Whether to capture the full scrollable page
 
     Returns:
-        Screenshot result (may include blob reference)
+        Dictionary containing screenshot data or blob:// URI reference
     """
     args = {}
     if name is not None:
@@ -217,7 +209,10 @@ async def playwright_screenshot(
     if full_page:
         args["fullPage"] = full_page
 
-    return await _call_playwright_tool("playwright_screenshot", args)
+    result = await _call_playwright_tool("playwright_screenshot", args)
+
+    # Return the result directly - middleware has already transformed to blob:// if needed
+    return result
 
 
 @mcp.tool()
@@ -258,57 +253,6 @@ async def playwright_get_visible_text() -> dict[str, Any]:
         Visible text content
     """
     return await _call_playwright_tool("playwright_get_visible_text", {})
-
-
-# =============================================================================
-# BLOB MANAGEMENT TOOLS
-# =============================================================================
-
-
-@mcp.tool()
-async def get_blob(blob_id: str) -> dict[str, Any]:
-    """
-    Retrieve binary data from blob storage by ID.
-
-    Args:
-        blob_id: Blob identifier (e.g., blob://timestamp-hash.png)
-
-    Returns:
-        Blob data and metadata
-    """
-    return await blob_tools.get_blob(blob_id)
-
-
-@mcp.tool()
-async def list_blobs(
-    mime_type: str | None = None, tags: list[str] | None = None, limit: int = 100
-) -> dict[str, Any]:
-    """
-    List available blobs in storage.
-
-    Args:
-        mime_type: Filter by MIME type (optional)
-        tags: Filter by tags (optional)
-        limit: Maximum results (default: 100)
-
-    Returns:
-        List of blob metadata
-    """
-    return await blob_tools.list_blobs(mime_type=mime_type, tags=tags, limit=limit)
-
-
-@mcp.tool()
-async def delete_blob(blob_id: str) -> dict[str, Any]:
-    """
-    Delete a blob from storage.
-
-    Args:
-        blob_id: Blob identifier to delete
-
-    Returns:
-        Deletion status
-    """
-    return await blob_tools.delete_blob(blob_id)
 
 
 # =============================================================================

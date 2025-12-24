@@ -5,7 +5,7 @@ Tests for blob storage manager
 import base64
 import tempfile
 from pathlib import Path
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -90,9 +90,7 @@ class TestPlaywrightBlobManager:
                 "created_at": "2024-01-01T00:00:00Z",
             }
 
-            result = await manager.store_base64_data(
-                base64_data=data_uri, filename="test.png"
-            )
+            result = await manager.store_base64_data(base64_data=data_uri, filename="test.png")
 
             assert result["mime_type"] == "image/png"
             assert result["size_bytes"] == len(test_data)
@@ -106,9 +104,7 @@ class TestPlaywrightBlobManager:
         """Test handling of storage failure."""
         manager = PlaywrightBlobManager(blob_config)
 
-        with patch.object(
-            manager.storage, "upload_blob", side_effect=Exception("Storage full")
-        ):
+        with patch.object(manager.storage, "upload_blob", side_effect=Exception("Storage full")):
             with pytest.raises(ValueError, match="Failed to store blob"):
                 await manager.store_base64_data("invalid", "test.bin")
 
@@ -164,9 +160,7 @@ class TestPlaywrightBlobManager:
             "created_at": "2024-01-01T00:00:00Z",
         }
 
-        with patch.object(
-            manager.storage, "get_metadata", return_value=test_metadata
-        ):
+        with patch.object(manager.storage, "get_metadata", return_value=test_metadata):
             result = await manager.get_blob_metadata("blob://test.png")
             assert result == test_metadata
 
@@ -184,9 +178,7 @@ class TestPlaywrightBlobManager:
         """Test getting metadata for nonexistent blob."""
         manager = PlaywrightBlobManager(blob_config)
 
-        with patch.object(
-            manager.storage, "get_metadata", side_effect=Exception("Not found")
-        ):
+        with patch.object(manager.storage, "get_metadata", side_effect=Exception("Not found")):
             with pytest.raises(ValueError, match="Blob not found"):
                 await manager.get_blob_metadata("blob://nonexistent.png")
 
@@ -208,9 +200,7 @@ class TestPlaywrightBlobManager:
             "tags": ["test"],
         }
 
-        with patch.object(
-            manager.storage, "get_metadata", return_value=test_metadata
-        ):
+        with patch.object(manager.storage, "get_metadata", return_value=test_metadata):
             result = await manager.list_blobs()
 
             assert len(result) == 2
@@ -235,9 +225,7 @@ class TestPlaywrightBlobManager:
             else:
                 return metadata_pdf
 
-        with patch.object(
-            manager.storage, "get_metadata", side_effect=get_metadata_side_effect
-        ):
+        with patch.object(manager.storage, "get_metadata", side_effect=get_metadata_side_effect):
             result = await manager.list_blobs(mime_type="image/png")
 
             assert len(result) == 1
@@ -261,9 +249,7 @@ class TestPlaywrightBlobManager:
             else:
                 return metadata_without_tag
 
-        with patch.object(
-            manager.storage, "get_metadata", side_effect=get_metadata_side_effect
-        ):
+        with patch.object(manager.storage, "get_metadata", side_effect=get_metadata_side_effect):
             result = await manager.list_blobs(tags=["screenshot"])
 
             assert len(result) == 1
@@ -291,9 +277,7 @@ class TestPlaywrightBlobManager:
         blob_path = Path(temp_storage)
         (blob_path / "blob_1").touch()
 
-        with patch.object(
-            manager.storage, "get_metadata", side_effect=Exception("Error")
-        ):
+        with patch.object(manager.storage, "get_metadata", side_effect=Exception("Error")):
             result = await manager.list_blobs()
 
             # Should return empty list on error
@@ -323,9 +307,7 @@ class TestPlaywrightBlobManager:
         """Test handling of deletion failure."""
         manager = PlaywrightBlobManager(blob_config)
 
-        with patch.object(
-            manager.storage, "delete_blob", side_effect=Exception("Delete error")
-        ):
+        with patch.object(manager.storage, "delete_blob", side_effect=Exception("Delete error")):
             result = await manager.delete_blob("blob://test.png")
             assert result is False
 

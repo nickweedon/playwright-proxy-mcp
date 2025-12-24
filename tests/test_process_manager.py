@@ -52,9 +52,7 @@ class TestPlaywrightProcessManager:
         mock_process.stderr = None
 
         with patch("shutil.which", return_value="/usr/bin/npx"):
-            with patch(
-                "asyncio.create_subprocess_exec", return_value=mock_process
-            ) as mock_create:
+            with patch("asyncio.create_subprocess_exec", return_value=mock_process) as mock_create:
                 result = await process_manager.start(mock_config)
 
                 assert result == mock_process
@@ -125,9 +123,7 @@ class TestPlaywrightProcessManager:
         mock_process.stderr = None
 
         with patch.object(process_manager, "stop") as mock_stop:
-            with patch.object(
-                process_manager, "start", return_value=mock_process
-            ) as mock_start:
+            with patch.object(process_manager, "start", return_value=mock_process) as mock_start:
                 result = await process_manager.restart(mock_config)
 
                 mock_stop.assert_called_once()

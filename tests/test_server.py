@@ -2,7 +2,6 @@
 Tests for the Playwright MCP Proxy server
 """
 
-import json
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -60,9 +59,7 @@ async def test_call_playwright_tool_success():
     """Test successful playwright tool call."""
     mock_client = Mock()
     mock_client.is_healthy.return_value = True
-    mock_client.call_tool = AsyncMock(
-        return_value={"status": "success", "data": "transformed"}
-    )
+    mock_client.call_tool = AsyncMock(return_value={"status": "success", "data": "transformed"})
 
     with patch("playwright_proxy_mcp.server.proxy_client", mock_client):
         # Use playwright_ prefix to test the mapping
@@ -106,3 +103,34 @@ async def test_call_playwright_tool_error_response():
             await _call_playwright_tool("navigate", {"url": "https://example.com"})
 
 
+@pytest.mark.asyncio
+async def test_playwright_screenshot_returns_blob_uri():
+    """Test that playwright_screenshot returns blob:// URI directly."""
+    mock_client = Mock()
+    mock_client.is_healthy.return_value = True
+
+    # Mock response with blob:// URI (after middleware transformation)
+    mock_client.call_tool = AsyncMock(
+        return_value={
+            "screenshot": "blob://1234567890-abc123.png",
+            "screenshot_size_kb": 150,
+            "screenshot_mime_type": "image/png",
+        }
+    )
+
+    with patch("playwright_proxy_mcp.server.proxy_client", mock_client):
+        # Call _call_playwright_tool directly since the tool is wrapped by FastMCP
+        result = await _call_playwright_tool(
+            "playwright_screenshot", {"name": "test", "fullPage": True}
+        )
+
+        # Should return the dict directly, not transform to Image
+        assert isinstance(result, dict)
+        assert result["screenshot"] == "blob://1234567890-abc123.png"
+        assert result["screenshot_size_kb"] == 150
+        assert result["screenshot_mime_type"] == "image/png"
+
+        # Verify correct tool call
+        mock_client.call_tool.assert_called_once_with(
+            "browser_take_screenshot", {"name": "test", "fullPage": True}
+        )

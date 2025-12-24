@@ -71,9 +71,7 @@ class TestBinaryInterceptionMiddleware:
         assert result == response
 
     @pytest.mark.asyncio
-    async def test_intercept_response_binary_tool_large_data(
-        self, middleware, mock_blob_manager
-    ):
+    async def test_intercept_response_binary_tool_large_data(self, middleware, mock_blob_manager):
         """Test that large binary data is stored as blob."""
         # Create large data (more than 50KB threshold)
         large_data = b"x" * (60 * 1024)  # 60KB
