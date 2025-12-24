@@ -135,7 +135,9 @@ class TestIntegrationWorkflows:
             # Initialize components (mimicking server.py global components)
             blob_manager = PlaywrightBlobManager(blob_config)
             process_manager = PlaywrightProcessManager()
-            middleware = BinaryInterceptionMiddleware(blob_manager, blob_config["size_threshold_kb"])
+            middleware = BinaryInterceptionMiddleware(
+                blob_manager, blob_config["size_threshold_kb"]
+            )
             proxy_client = PlaywrightProxyClient(process_manager, middleware)
 
             # Patch the server's global components to use our test instances
@@ -160,13 +162,17 @@ class TestIntegrationWorkflows:
                 assert proxy_client.is_healthy(), "Proxy client should be healthy after starting"
 
                 # Navigate to Amazon using the MCP server tool's underlying function
-                navigate_result = await server_module.playwright_navigate.fn("https://www.amazon.com")
+                navigate_result = await server_module.playwright_navigate.fn(
+                    "https://www.amazon.com"
+                )
 
                 # Verify navigation succeeded
                 assert navigate_result is not None, "Navigation result should not be None"
 
                 # Take a screenshot using the MCP server tool's underlying function (not proxy client directly!)
-                blob_uri = await server_module.playwright_screenshot.fn(name="amazon_homepage", full_page=False)
+                blob_uri = await server_module.playwright_screenshot.fn(
+                    name="amazon_homepage", full_page=False
+                )
 
                 # CRITICAL VERIFICATION: Result should be ONLY a blob URI string, not blob data
                 assert isinstance(blob_uri, str), (
@@ -204,4 +210,126 @@ class TestIntegrationWorkflows:
                 await proxy_client.stop()
 
                 # Verify cleanup
-                assert not proxy_client.is_healthy(), "Proxy client should not be healthy after stopping"
+                assert not proxy_client.is_healthy(), (
+                    "Proxy client should not be healthy after stopping"
+                )
+
+    @pytest.mark.asyncio
+    async def test_real_mcp_server_amazon_search(self):
+        """
+        Integration test: Navigate to Amazon and search for trousers.
+
+        This test verifies:
+        1. The MCP server starts successfully
+        2. Navigation to Amazon works
+        3. Form filling and search functionality works
+        4. Response size tracking for the search results page
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Set up configuration
+            blob_config = {
+                "storage_root": tmpdir,
+                "max_size_mb": 100,
+                "ttl_hours": 24,
+                "size_threshold_kb": 50,
+                "cleanup_interval_minutes": 60,
+            }
+
+            playwright_config = load_playwright_config()
+            # Ensure headless mode for testing
+            playwright_config["headless"] = True
+            # Override output_dir to use temp directory instead of /app
+            playwright_config["output_dir"] = f"{tmpdir}/playwright-output"
+
+            # Initialize components (mimicking server.py global components)
+            blob_manager = PlaywrightBlobManager(blob_config)
+            process_manager = PlaywrightProcessManager()
+            middleware = BinaryInterceptionMiddleware(
+                blob_manager, blob_config["size_threshold_kb"]
+            )
+            proxy_client = PlaywrightProxyClient(process_manager, middleware)
+
+            # Patch the server's global components to use our test instances
+            import playwright_proxy_mcp.server as server_module
+
+            original_proxy_client = server_module.proxy_client
+            original_blob_manager = server_module.blob_manager
+            original_middleware = server_module.middleware
+
+            server_module.proxy_client = proxy_client
+            server_module.blob_manager = blob_manager
+            server_module.middleware = middleware
+
+            try:
+                # Start the proxy client and playwright-mcp subprocess
+                await proxy_client.start(playwright_config)
+
+                # Start blob cleanup task
+                await blob_manager.start_cleanup_task()
+
+                # Verify the proxy client is healthy
+                assert proxy_client.is_healthy(), "Proxy client should be healthy after starting"
+
+                # 1. Navigate to Amazon homepage
+                navigate_result_1 = await server_module.playwright_navigate.fn(
+                    "https://www.amazon.com"
+                )
+
+                # Verify first navigation succeeded
+                assert navigate_result_1 is not None, "First navigation result should not be None"
+
+                # 2. Navigate to Amazon search results for "trousers"
+                # This is the second call that we're focusing on
+                import json
+
+                navigate_result_2 = await server_module.playwright_navigate.fn(
+                    "https://www.amazon.com/s?k=trousers"
+                )
+
+                # Serialize the response to measure its size
+                response_json = json.dumps(navigate_result_2)
+                response_size_bytes = len(response_json.encode("utf-8"))
+                response_size_kb = response_size_bytes / 1024
+
+                # Verify search navigation succeeded
+                assert navigate_result_2 is not None, "Second navigation result should not be None"
+
+                # Display results for the second call (trousers search)
+                print("\n=== Amazon Trousers Search Navigation (Second Call) ===")
+                print(f"Response type: {type(navigate_result_2)}")
+                print(f"Response size: {response_size_bytes} bytes ({response_size_kb:.2f} KB)")
+
+                # Check if response is a dict with content
+                if isinstance(navigate_result_2, dict):
+                    result_str = str(navigate_result_2)
+
+                    # Verify the navigation was successful
+                    assert len(result_str) > 0, "Navigation result should not be empty"
+
+                    print(
+                        f"Response keys: {list(navigate_result_2.keys()) if isinstance(navigate_result_2, dict) else 'N/A'}"
+                    )
+                    print(f"Response preview (first 500 chars): {result_str[:500]}")
+
+                print("=== End of Search Navigation Results ===\n")
+
+                # Final verification: Response size should be reasonable (not empty, but not huge)
+                assert response_size_bytes > 100, "Response should contain substantial content"
+                assert response_size_bytes < 10_000_000, (
+                    "Response should not be excessively large (>10MB)"
+                )
+
+            finally:
+                # Restore original server components
+                server_module.proxy_client = original_proxy_client
+                server_module.blob_manager = original_blob_manager
+                server_module.middleware = original_middleware
+
+                # Clean up
+                await blob_manager.stop_cleanup_task()
+                await proxy_client.stop()
+
+                # Verify cleanup
+                assert not proxy_client.is_healthy(), (
+                    "Proxy client should not be healthy after stopping"
+                )

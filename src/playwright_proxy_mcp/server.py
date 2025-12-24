@@ -198,7 +198,9 @@ async def playwright_screenshot(name: str | None = None, full_page: bool = True)
 
     Args:
         name: Optional name for the screenshot
-        full_page: Whether to capture the full scrollable page
+        full_page: Whether to capture the full scrollable page (default: True).
+                   When True, captures the entire page content including areas
+                   that require scrolling. When False, captures only the visible viewport.
 
     Returns:
         Blob URI reference (blob://timestamp-hash.png)
@@ -206,8 +208,8 @@ async def playwright_screenshot(name: str | None = None, full_page: bool = True)
     args = {}
     if name is not None:
         args["name"] = name
-    if full_page:
-        args["fullPage"] = full_page
+    # Always pass fullPage parameter to ensure consistent behavior
+    args["fullPage"] = full_page
 
     result = await _call_playwright_tool("playwright_screenshot", args)
 
