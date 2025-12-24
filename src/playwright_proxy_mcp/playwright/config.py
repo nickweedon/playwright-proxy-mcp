@@ -112,8 +112,8 @@ def load_playwright_config() -> PlaywrightConfig:
     if device := os.getenv("PLAYWRIGHT_DEVICE"):
         config["device"] = device
 
-    if viewport_size := os.getenv("PLAYWRIGHT_VIEWPORT_SIZE"):
-        config["viewport_size"] = viewport_size
+    # Default viewport size to 1920x1080
+    config["viewport_size"] = os.getenv("PLAYWRIGHT_VIEWPORT_SIZE", "1920x1080")
 
     if user_data_dir := os.getenv("PLAYWRIGHT_USER_DATA_DIR"):
         config["user_data_dir"] = user_data_dir
