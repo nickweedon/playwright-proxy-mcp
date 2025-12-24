@@ -21,16 +21,21 @@ class BinaryInterceptionMiddleware:
     """
 
     # Tools that always produce binary data
+    # Note: includes both playwright_ prefixed names (from server.py) and browser_ prefixed names (from @playwright/mcp)
     BINARY_TOOLS = {
         "playwright_screenshot",
+        "browser_take_screenshot",
         "playwright_pdf",
         "playwright_save_as_pdf",
+        "browser_pdf",
     }
 
     # Tools that may produce binary data
     CONDITIONAL_BINARY_TOOLS = {
         "playwright_get_console",
         "playwright_download",
+        "browser_console",
+        "browser_download",
     }
 
     def __init__(self, blob_manager: PlaywrightBlobManager, size_threshold_kb: int = 50) -> None:
@@ -94,6 +99,10 @@ class BinaryInterceptionMiddleware:
                 # Recursively process nested dicts
                 result[key] = await self._transform_response_data(value, tool_name)
 
+            elif isinstance(value, list):
+                # Handle arrays (e.g., content arrays from @playwright/mcp)
+                result[key] = await self._transform_list_data(value, key, tool_name)
+
             elif isinstance(value, str):
                 # Check if this is base64 data
                 if await self._should_store_as_blob(value):
@@ -116,6 +125,64 @@ class BinaryInterceptionMiddleware:
 
             else:
                 result[key] = value
+
+        return result
+
+    async def _transform_list_data(
+        self, items: list[Any], field_name: str, tool_name: str
+    ) -> list[Any]:
+        """
+        Transform list data, handling content arrays from @playwright/mcp.
+
+        Args:
+            items: List of items to transform
+            field_name: Name of the field containing the list
+            tool_name: Tool name for context
+
+        Returns:
+            Transformed list
+        """
+        result = []
+
+        for item in items:
+            if isinstance(item, dict):
+                # Check if this is an image/binary content item
+                if item.get("type") in ("image", "resource") and "data" in item:
+                    # Transform image/binary data to blob
+                    data = item["data"]
+                    mime_type = item.get("mimeType", "application/octet-stream")
+
+                    # Check if data should be stored as blob
+                    if await self._should_store_as_blob(data):
+                        # Determine extension from MIME type
+                        extension = self._get_extension_from_mime_type(mime_type)
+                        filename = f"{tool_name}_{field_name}{extension}"
+
+                        # Store as blob
+                        blob_info = await self.blob_manager.store_base64_data(
+                            base64_data=data, filename=filename, tags=[tool_name, field_name]
+                        )
+
+                        logger.info(
+                            f"Stored {field_name} item as blob {blob_info['blob_id']} "
+                            f"({blob_info['size_bytes']} bytes)"
+                        )
+
+                        # Replace with blob reference
+                        result.append({
+                            "type": "blob",
+                            "blob_id": blob_info["blob_id"],
+                            "size_kb": blob_info["size_bytes"] // 1024,
+                            "mime_type": blob_info["mime_type"],
+                            "expires_at": blob_info["expires_at"],
+                        })
+                    else:
+                        result.append(item)
+                else:
+                    # Recursively transform nested dicts
+                    result.append(await self._transform_response_data(item, tool_name))
+            else:
+                result.append(item)
 
         return result
 
@@ -194,7 +261,18 @@ class BinaryInterceptionMiddleware:
             return ".bin"
 
         mime_type = match.group(1)
+        return self._get_extension_from_mime_type(mime_type)
 
+    def _get_extension_from_mime_type(self, mime_type: str) -> str:
+        """
+        Map MIME type to file extension.
+
+        Args:
+            mime_type: MIME type string (e.g., "image/png")
+
+        Returns:
+            File extension (e.g., ".png")
+        """
         # Map common MIME types to extensions
         mime_to_ext = {
             "image/png": ".png",

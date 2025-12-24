@@ -211,8 +211,22 @@ async def playwright_screenshot(name: str | None = None, full_page: bool = False
 
     result = await _call_playwright_tool("playwright_screenshot", args)
 
-    # Return the blob URI - middleware has already transformed to blob://
-    return result
+    # Extract blob URI from transformed response
+    # After middleware transformation, response is: {'content': [{'type': 'text', ...}, {'type': 'blob', 'blob_id': '...', ...}]}
+    if isinstance(result, dict) and "content" in result:
+        content = result["content"]
+        if isinstance(content, list):
+            # Find the blob item in the content array
+            for item in content:
+                if isinstance(item, dict) and item.get("type") == "blob":
+                    return item["blob_id"]
+
+    # Fallback: if result is already a string (older format), return it
+    if isinstance(result, str):
+        return result
+
+    # If we can't find the blob URI, raise an error
+    raise RuntimeError(f"Failed to extract blob URI from screenshot result: {result}")
 
 
 @mcp.tool()
