@@ -214,6 +214,16 @@ class PlaywrightProcessManager:
         if "image_responses" in config:
             command.extend(["--image-responses", config["image_responses"]])
 
+        # Stealth settings
+        if "user_agent" in config and config["user_agent"]:
+            command.extend(["--user-agent", config["user_agent"]])
+
+        if "init_script" in config and config["init_script"]:
+            command.extend(["--init-script", config["init_script"]])
+
+        if "ignore_https_errors" in config and config["ignore_https_errors"]:
+            command.append("--ignore-https-errors")
+
         return command
 
     async def get_stderr_output(self) -> str:

@@ -59,6 +59,11 @@ class PlaywrightConfig(TypedDict, total=False):
     # Images
     image_responses: str
 
+    # Stealth settings
+    user_agent: str | None
+    init_script: str | None
+    ignore_https_errors: bool
+
 
 class BlobConfig(TypedDict):
     """Configuration for blob storage"""
@@ -106,6 +111,7 @@ def load_playwright_config() -> PlaywrightConfig:
         "timeout_action": _get_int_env("PLAYWRIGHT_TIMEOUT_ACTION", 5000),
         "timeout_navigation": _get_int_env("PLAYWRIGHT_TIMEOUT_NAVIGATION", 60000),
         "image_responses": os.getenv("PLAYWRIGHT_IMAGE_RESPONSES", "allow"),
+        "ignore_https_errors": _get_bool_env("PLAYWRIGHT_IGNORE_HTTPS_ERRORS", False),
     }
 
     # Optional settings - only include if set
@@ -132,6 +138,21 @@ def load_playwright_config() -> PlaywrightConfig:
 
     if save_video := os.getenv("PLAYWRIGHT_SAVE_VIDEO"):
         config["save_video"] = save_video
+
+    # Stealth settings
+    if user_agent := os.getenv("PLAYWRIGHT_USER_AGENT"):
+        config["user_agent"] = user_agent
+
+    # Default to bundled stealth script if stealth mode is enabled
+    if _get_bool_env("PLAYWRIGHT_STEALTH_MODE", False):
+        # Use bundled stealth.js script
+        stealth_script_path = Path(__file__).parent / "stealth.js"
+        if stealth_script_path.exists():
+            config["init_script"] = str(stealth_script_path)
+
+    # Allow custom init script to override
+    if init_script := os.getenv("PLAYWRIGHT_INIT_SCRIPT"):
+        config["init_script"] = init_script
 
     return config
 

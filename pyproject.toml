@@ -44,6 +44,9 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/playwright_proxy_mcp"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"src/playwright_proxy_mcp/playwright/stealth.js" = "playwright_proxy_mcp/playwright/stealth.js"
+
 [tool.ruff]
 line-length = 100
 target-version = "py310"

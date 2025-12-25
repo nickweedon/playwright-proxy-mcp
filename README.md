@@ -5,6 +5,7 @@ A proxy server for Microsoft's [playwright-mcp](https://github.com/microsoft/pla
 ## Features
 
 - **Playwright Browser Automation**: Full access to all playwright-mcp browser automation tools
+- **Stealth Mode**: Built-in anti-detection capabilities to make automation less detectable (see [STEALTH.md](docs/STEALTH.md))
 - **Efficient Binary Handling**: Large screenshots and PDFs are automatically stored as blobs to reduce token usage
 - **Blob Storage**: Built-in blob management using [mcp-mapped-resource-lib](https://github.com/nickweedon/mcp_mapped_resource_lib)
 - **Automatic Cleanup**: TTL-based automatic expiration of old blobs
@@ -77,6 +78,15 @@ Configure the proxy via environment variables in `.env`:
 - `PLAYWRIGHT_CAPS`: Capabilities (vision,pdf,testing,tracing) - default: vision,pdf
 - `PLAYWRIGHT_TIMEOUT_ACTION`: Action timeout in ms - default: 5000
 - `PLAYWRIGHT_TIMEOUT_NAVIGATION`: Navigation timeout in ms - default: 60000
+
+### Stealth Settings (Anti-Detection)
+
+- `PLAYWRIGHT_STEALTH_MODE`: Enable built-in stealth mode - default: false
+- `PLAYWRIGHT_USER_AGENT`: Custom user agent string - optional
+- `PLAYWRIGHT_INIT_SCRIPT`: Path to custom init script - optional
+- `PLAYWRIGHT_IGNORE_HTTPS_ERRORS`: Ignore HTTPS errors - default: false
+
+See [docs/STEALTH.md](docs/STEALTH.md) for detailed stealth configuration and usage guide.
 
 ### Blob Storage Settings
 
