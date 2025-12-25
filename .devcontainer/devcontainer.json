@@ -23,7 +23,7 @@
             }
         }
     },
-    "postCreateCommand": "uv sync",
+    "postCreateCommand": "uv sync --extra dev",
 
     // Fix docker group GID to match host's docker socket
     "postStartCommand": "sudo chgrp docker /var/run/docker.sock 2>/dev/null || true",
