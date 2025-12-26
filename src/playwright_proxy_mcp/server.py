@@ -441,7 +441,9 @@ async def browser_select_option(element: str, ref: str, values: list[str]) -> di
     Returns:
         Selection result
     """
-    return await _call_playwright_tool("browser_select_option", {"element": element, "ref": ref, "values": values})
+    return await _call_playwright_tool(
+        "browser_select_option", {"element": element, "ref": ref, "values": values}
+    )
 
 
 @mcp.tool()
@@ -501,7 +503,9 @@ async def browser_mouse_move_xy(element: str, x: float, y: float) -> dict[str, A
     Returns:
         Mouse move result
     """
-    return await _call_playwright_tool("browser_mouse_move_xy", {"element": element, "x": x, "y": y})
+    return await _call_playwright_tool(
+        "browser_mouse_move_xy", {"element": element, "x": x, "y": y}
+    )
 
 
 @mcp.tool()
@@ -517,7 +521,9 @@ async def browser_mouse_click_xy(element: str, x: float, y: float) -> dict[str, 
     Returns:
         Mouse click result
     """
-    return await _call_playwright_tool("browser_mouse_click_xy", {"element": element, "x": x, "y": y})
+    return await _call_playwright_tool(
+        "browser_mouse_click_xy", {"element": element, "x": x, "y": y}
+    )
 
 
 @mcp.tool()
@@ -653,7 +659,9 @@ async def browser_verify_element_visible(role: str, accessibleName: str) -> dict
     Returns:
         Verification result
     """
-    return await _call_playwright_tool("browser_verify_element_visible", {"role": role, "accessibleName": accessibleName})
+    return await _call_playwright_tool(
+        "browser_verify_element_visible", {"role": role, "accessibleName": accessibleName}
+    )
 
 
 @mcp.tool()
@@ -683,7 +691,9 @@ async def browser_verify_list_visible(element: str, ref: str, items: list[str]) 
     Returns:
         Verification result
     """
-    return await _call_playwright_tool("browser_verify_list_visible", {"element": element, "ref": ref, "items": items})
+    return await _call_playwright_tool(
+        "browser_verify_list_visible", {"element": element, "ref": ref, "items": items}
+    )
 
 
 @mcp.tool()
@@ -700,7 +710,9 @@ async def browser_verify_value(type: str, element: str, ref: str, value: str) ->
     Returns:
         Verification result
     """
-    return await _call_playwright_tool("browser_verify_value", {"type": type, "element": element, "ref": ref, "value": value})
+    return await _call_playwright_tool(
+        "browser_verify_value", {"type": type, "element": element, "ref": ref, "value": value}
+    )
 
 
 # =============================================================================

@@ -1,0 +1,13 @@
+T__0=1
+T__1=2
+T__2=3
+T__3=4
+STRING=5
+REGEX=6
+IDENTIFIER=7
+NUMBER=8
+WS=9
+'['=1
+']'=2
+'='=3
+'mixed'=4

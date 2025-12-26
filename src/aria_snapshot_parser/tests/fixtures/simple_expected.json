@@ -1,0 +1,22 @@
+[
+  {
+    "role": "button",
+    "name": {
+      "value": "Submit",
+      "is_regex": false
+    },
+    "ref": "e1",
+    "cursor": "pointer"
+  },
+  {
+    "role": "link",
+    "name": {
+      "value": "Home",
+      "is_regex": false
+    },
+    "ref": "e2",
+    "props": {
+      "url": "https://example.com"
+    }
+  }
+]

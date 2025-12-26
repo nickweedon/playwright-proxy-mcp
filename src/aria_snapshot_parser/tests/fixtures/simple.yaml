@@ -1,0 +1,3 @@
+- button "Submit" [ref=e1] [cursor=pointer]
+- link "Home" [ref=e2]:
+  - /url: https://example.com

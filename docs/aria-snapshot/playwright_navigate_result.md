@@ -1,0 +1,58 @@
+### Ran Playwright code
+await page.goto('https://www.google.com');
+
+### Page state
+- Page URL: https://www.google.com/
+- Page Title: Google
+- Page Snapshot:
+```yaml
+- generic [ref=e2]:
+  - navigation [ref=e3]:
+    - link "About" [ref=e4] [cursor=pointer]:
+      - /url: https://about.google/?fg=1&utm_source=google-US&utm_medium=referral&utm_campaign=hp-header
+    - link "Store" [ref=e5] [cursor=pointer]:
+      - /url: https://store.google.com/US?utm_source=hp_header&utm_medium=google_ooo&utm_campaign=GS100042&hl=en-US
+    - generic [ref=e7]:
+      - generic [ref=e8]:
+        - link "Gmail" [ref=e10] [cursor=pointer]:
+          - /url: https://mail.google.com/mail/&ogbl
+        - link "Search for Images" [ref=e12] [cursor=pointer]:
+          - /url: https://www.google.com/imghp?hl=en&ogbl
+          - text: Images
+      - button "Google apps" [ref=e15] [cursor=pointer]:
+        - img [ref=e16]
+      - link "Sign in" [ref=e20] [cursor=pointer]:
+        - /url: https://accounts.google.com/ServiceLogin?hl=en&passive=true&continue=https://www.google.com/&ec=futura_exp_og_so_72776762_e
+  - img "Seasonal Holidays 2025" [ref=e25]
+  - search [ref=e27]:
+    - generic [ref=e29]:
+      - generic [ref=e31]:
+        - img [ref=e35]
+        - combobox "Search" [active] [ref=e38]
+        - generic [ref=e40]:
+          - button "Search by voice" [ref=e41] [cursor=pointer]:
+            - img [ref=e42]
+          - button "Search by image" [ref=e44] [cursor=pointer]:
+            - img [ref=e45]
+      - generic [ref=e48]:
+        - button "Google Search" [ref=e49] [cursor=pointer]
+        - button "I'm Feeling Lucky" [ref=e50] [cursor=pointer]
+  - contentinfo [ref=e53]:
+    - generic [ref=e54]:
+      - generic [ref=e55]:
+        - link "Advertising" [ref=e56] [cursor=pointer]:
+          - /url: https://www.google.com/intl/en_us/ads/?subid=ww-ww-et-g-awa-a-g_hpafoot1_1!o2&utm_source=google.com&utm_medium=referral&utm_campaign=google_hpafooter&fg=1
+        - link "Business" [ref=e57] [cursor=pointer]:
+          - /url: https://www.google.com/services/?subid=ww-ww-et-g-awa-a-g_hpbfoot1_1!o2&utm_source=google.com&utm_medium=referral&utm_campaign=google_hpbfooter&fg=1
+        - link "How Search works" [ref=e58] [cursor=pointer]:
+          - /url: https://google.com/search/howsearchworks/?fg=1
+      - link "Applying AI towards science and the environment" [ref=e60] [cursor=pointer]:
+        - /url: https://ai.google/societal-impact/?utm_source=googlehpfooter&utm_medium=housepromos&utm_campaign=bottom-footer
+      - generic [ref=e61]:
+        - link "Privacy" [ref=e62] [cursor=pointer]:
+          - /url: https://policies.google.com/privacy?hl=en&fg=1
+        - link "Terms" [ref=e63] [cursor=pointer]:
+          - /url: https://policies.google.com/terms?hl=en&fg=1
+        - button "Settings" [ref=e67] [cursor=pointer]:
+          - generic [ref=e68]: Settings
+```
