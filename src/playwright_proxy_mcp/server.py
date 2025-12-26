@@ -643,6 +643,59 @@ async def browser_execute_bulk(
                 "stopped_at": None,
             }
 
+    # Map tool names to their wrapper functions
+    # This ensures all custom logic (JMESPath, pagination, blob handling, etc.) is executed
+    # Note: We need to access .fn to get the actual function from FunctionTool wrappers
+    tool_registry = {
+        # Navigation tools
+        "browser_navigate": browser_navigate.fn,
+        "browser_navigate_back": browser_navigate_back.fn,
+        # Snapshot & interaction tools
+        "browser_snapshot": browser_snapshot.fn,
+        "browser_click": browser_click.fn,
+        "browser_drag": browser_drag.fn,
+        "browser_hover": browser_hover.fn,
+        "browser_select_option": browser_select_option.fn,
+        "browser_generate_locator": browser_generate_locator.fn,
+        # Form interaction tools
+        "browser_fill_form": browser_fill_form.fn,
+        # Screenshot & PDF tools
+        "browser_take_screenshot": browser_take_screenshot.fn,
+        "browser_pdf_save": browser_pdf_save.fn,
+        # Code execution tools
+        "browser_run_code": browser_run_code.fn,
+        "browser_evaluate": browser_evaluate.fn,
+        # Mouse tools
+        "browser_mouse_move_xy": browser_mouse_move_xy.fn,
+        "browser_mouse_click_xy": browser_mouse_click_xy.fn,
+        "browser_mouse_drag_xy": browser_mouse_drag_xy.fn,
+        # Keyboard tools
+        "browser_press_key": browser_press_key.fn,
+        "browser_type": browser_type.fn,
+        # Wait & timing tools
+        "browser_wait_for": browser_wait_for.fn,
+        # Verification/testing tools
+        "browser_verify_element_visible": browser_verify_element_visible.fn,
+        "browser_verify_text_visible": browser_verify_text_visible.fn,
+        "browser_verify_list_visible": browser_verify_list_visible.fn,
+        "browser_verify_value": browser_verify_value.fn,
+        # Network tools
+        "browser_network_requests": browser_network_requests.fn,
+        # Tab management tools
+        "browser_tabs": browser_tabs.fn,
+        # Console tools
+        "browser_console_messages": browser_console_messages.fn,
+        # Dialog tools
+        "browser_handle_dialog": browser_handle_dialog.fn,
+        # File upload tools
+        "browser_file_upload": browser_file_upload.fn,
+        # Tracing tools
+        "browser_start_tracing": browser_start_tracing.fn,
+        "browser_stop_tracing": browser_stop_tracing.fn,
+        # Installation tools
+        "browser_install": browser_install.fn,
+    }
+
     # Execute commands sequentially
     results: list[Any | None] = []
     errors: list[str | None] = []
@@ -655,7 +708,14 @@ async def browser_execute_bulk(
         return_result = cmd.get("return_result", False) or return_all_results
 
         try:
-            result = await _call_playwright_tool(tool_name, args)
+            # Try to find wrapper function first
+            if tool_name in tool_registry:
+                # Call wrapper function (preserves JMESPath, pagination, blob handling, etc.)
+                result = await tool_registry[tool_name](**args)
+            else:
+                # Fallback to direct call for any tools not in registry
+                result = await _call_playwright_tool(tool_name, args)
+
             results.append(result if return_result else None)
             errors.append(None)
             executed_count += 1

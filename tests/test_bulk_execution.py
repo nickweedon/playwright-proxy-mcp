@@ -13,14 +13,15 @@ browser_execute_bulk = browser_execute_bulk_tool.fn
 @pytest.mark.asyncio
 async def test_bulk_execution_basic():
     """Test basic sequential execution with selective results."""
-    # Mock _call_playwright_tool
-    with patch("playwright_proxy_mcp.server._call_playwright_tool", new_callable=AsyncMock) as mock_tool:
-        # Setup mock to return different results for each command
-        mock_tool.side_effect = [
-            {"status": "navigated"},
-            {"status": "waited"},
-            {"snapshot": "data"},
-        ]
+    # Mock wrapper functions
+    with patch("playwright_proxy_mcp.server.browser_navigate.fn", new_callable=AsyncMock) as mock_nav, \
+         patch("playwright_proxy_mcp.server.browser_wait_for.fn", new_callable=AsyncMock) as mock_wait, \
+         patch("playwright_proxy_mcp.server.browser_snapshot.fn", new_callable=AsyncMock) as mock_snap:
+
+        # Setup mocks to return different results for each command
+        mock_nav.return_value = {"status": "navigated"}
+        mock_wait.return_value = {"status": "waited"}
+        mock_snap.return_value = {"snapshot": "data"}
 
         # Execute bulk with 3 commands, only last returns result
         result = await browser_execute_bulk(
@@ -45,17 +46,18 @@ async def test_bulk_execution_basic():
 @pytest.mark.asyncio
 async def test_bulk_execution_return_all_results():
     """Test return_all_results parameter."""
-    with patch("playwright_proxy_mcp.server._call_playwright_tool", new_callable=AsyncMock) as mock_tool:
-        mock_tool.side_effect = [
-            {"status": "navigated"},
-            {"status": "clicked"},
-            {"snapshot": "data"},
-        ]
+    with patch("playwright_proxy_mcp.server.browser_navigate.fn", new_callable=AsyncMock) as mock_nav, \
+         patch("playwright_proxy_mcp.server.browser_click.fn", new_callable=AsyncMock) as mock_click, \
+         patch("playwright_proxy_mcp.server.browser_snapshot.fn", new_callable=AsyncMock) as mock_snap:
+
+        mock_nav.return_value = {"status": "navigated"}
+        mock_click.return_value = {"status": "clicked"}
+        mock_snap.return_value = {"snapshot": "data"}
 
         result = await browser_execute_bulk(
             commands=[
                 {"tool": "browser_navigate", "args": {"url": "https://example.com"}},
-                {"tool": "browser_click", "args": {"element": "button"}},
+                {"tool": "browser_click", "args": {"element": "button", "ref": "e1"}},
                 {"tool": "browser_snapshot", "args": {}},
             ],
             return_all_results=True,
@@ -73,17 +75,17 @@ async def test_bulk_execution_return_all_results():
 @pytest.mark.asyncio
 async def test_bulk_execution_stop_on_error():
     """Test stop_on_error halts at first failure."""
-    with patch("playwright_proxy_mcp.server._call_playwright_tool", new_callable=AsyncMock) as mock_tool:
+    with patch("playwright_proxy_mcp.server.browser_navigate.fn", new_callable=AsyncMock) as mock_nav, \
+         patch("playwright_proxy_mcp.server.browser_click.fn", new_callable=AsyncMock) as mock_click:
+
         # First command succeeds, second fails
-        mock_tool.side_effect = [
-            {"status": "navigated"},
-            RuntimeError("Navigation failed"),
-        ]
+        mock_nav.return_value = {"status": "navigated"}
+        mock_click.side_effect = RuntimeError("Navigation failed")
 
         result = await browser_execute_bulk(
             commands=[
                 {"tool": "browser_navigate", "args": {"url": "https://example.com"}},
-                {"tool": "browser_click", "args": {"element": "button"}},
+                {"tool": "browser_click", "args": {"element": "button", "ref": "e1"}},
                 {"tool": "browser_snapshot", "args": {}, "return_result": True},
             ],
             stop_on_error=True,
@@ -104,18 +106,19 @@ async def test_bulk_execution_stop_on_error():
 @pytest.mark.asyncio
 async def test_bulk_execution_continue_on_error():
     """Test continue on error collects all errors."""
-    with patch("playwright_proxy_mcp.server._call_playwright_tool", new_callable=AsyncMock) as mock_tool:
+    with patch("playwright_proxy_mcp.server.browser_navigate.fn", new_callable=AsyncMock) as mock_nav, \
+         patch("playwright_proxy_mcp.server.browser_click.fn", new_callable=AsyncMock) as mock_click, \
+         patch("playwright_proxy_mcp.server.browser_snapshot.fn", new_callable=AsyncMock) as mock_snap:
+
         # Commands 1 and 3 fail, command 2 succeeds
-        mock_tool.side_effect = [
-            RuntimeError("First error"),
-            {"status": "clicked"},
-            RuntimeError("Third error"),
-        ]
+        mock_nav.side_effect = RuntimeError("First error")
+        mock_click.return_value = {"status": "clicked"}
+        mock_snap.side_effect = RuntimeError("Third error")
 
         result = await browser_execute_bulk(
             commands=[
                 {"tool": "browser_navigate", "args": {"url": "https://example.com"}},
-                {"tool": "browser_click", "args": {"element": "button"}},
+                {"tool": "browser_click", "args": {"element": "button", "ref": "e1"}},
                 {"tool": "browser_snapshot", "args": {}, "return_result": True},
             ],
             stop_on_error=False,
@@ -179,8 +182,8 @@ async def test_bulk_execution_invalid_command_structure():
 @pytest.mark.asyncio
 async def test_bulk_execution_single_command():
     """Test single command execution."""
-    with patch("playwright_proxy_mcp.server._call_playwright_tool", new_callable=AsyncMock) as mock_tool:
-        mock_tool.return_value = {"status": "navigated"}
+    with patch("playwright_proxy_mcp.server.browser_navigate.fn", new_callable=AsyncMock) as mock_nav:
+        mock_nav.return_value = {"status": "navigated"}
 
         result = await browser_execute_bulk(
             commands=[
@@ -197,12 +200,13 @@ async def test_bulk_execution_single_command():
 @pytest.mark.asyncio
 async def test_bulk_execution_workflow_navigate_wait_snapshot():
     """Test navigate→wait→snapshot workflow pattern."""
-    with patch("playwright_proxy_mcp.server._call_playwright_tool", new_callable=AsyncMock) as mock_tool:
-        mock_tool.side_effect = [
-            {"success": True, "url": "https://example.com"},
-            {"success": True},
-            {"snapshot": "- button 'Submit' [ref=e1]\n- textbox 'Email' [ref=e2]"},
-        ]
+    with patch("playwright_proxy_mcp.server.browser_navigate.fn", new_callable=AsyncMock) as mock_nav, \
+         patch("playwright_proxy_mcp.server.browser_wait_for.fn", new_callable=AsyncMock) as mock_wait, \
+         patch("playwright_proxy_mcp.server.browser_snapshot.fn", new_callable=AsyncMock) as mock_snap:
+
+        mock_nav.return_value = {"success": True, "url": "https://example.com"}
+        mock_wait.return_value = {"success": True}
+        mock_snap.return_value = {"snapshot": "- button 'Submit' [ref=e1]\n- textbox 'Email' [ref=e2]"}
 
         result = await browser_execute_bulk(
             commands=[
@@ -215,20 +219,25 @@ async def test_bulk_execution_workflow_navigate_wait_snapshot():
         assert result["success"] is True
         assert result["executed_count"] == 3
         assert result["results"][2]["snapshot"] == "- button 'Submit' [ref=e1]\n- textbox 'Email' [ref=e2]"
-        assert mock_tool.call_count == 3
+        assert mock_nav.call_count == 1
+        assert mock_wait.call_count == 1
+        assert mock_snap.call_count == 1
 
 
 @pytest.mark.asyncio
 async def test_bulk_execution_workflow_form_filling():
     """Test form filling workflow pattern."""
-    with patch("playwright_proxy_mcp.server._call_playwright_tool", new_callable=AsyncMock) as mock_tool:
-        mock_tool.side_effect = [
-            {"success": True},  # navigate
-            {"success": True},  # type
-            {"success": True},  # click
-            {"success": True},  # wait
-            {"snapshot": "- heading 'Success' [ref=e1]"},  # snapshot
-        ]
+    with patch("playwright_proxy_mcp.server.browser_navigate.fn", new_callable=AsyncMock) as mock_nav, \
+         patch("playwright_proxy_mcp.server.browser_type.fn", new_callable=AsyncMock) as mock_type, \
+         patch("playwright_proxy_mcp.server.browser_click.fn", new_callable=AsyncMock) as mock_click, \
+         patch("playwright_proxy_mcp.server.browser_wait_for.fn", new_callable=AsyncMock) as mock_wait, \
+         patch("playwright_proxy_mcp.server.browser_snapshot.fn", new_callable=AsyncMock) as mock_snap:
+
+        mock_nav.return_value = {"success": True}
+        mock_type.return_value = {"success": True}
+        mock_click.return_value = {"success": True}
+        mock_wait.return_value = {"success": True}
+        mock_snap.return_value = {"snapshot": "- heading 'Success' [ref=e1]"}
 
         result = await browser_execute_bulk(
             commands=[
@@ -248,13 +257,14 @@ async def test_bulk_execution_workflow_form_filling():
 @pytest.mark.asyncio
 async def test_bulk_execution_mixed_response_types():
     """Test handling of different response types (dicts, strings, etc)."""
-    with patch("playwright_proxy_mcp.server._call_playwright_tool", new_callable=AsyncMock) as mock_tool:
+    with patch("playwright_proxy_mcp.server.browser_navigate.fn", new_callable=AsyncMock) as mock_nav, \
+         patch("playwright_proxy_mcp.server.browser_snapshot.fn", new_callable=AsyncMock) as mock_snap, \
+         patch("playwright_proxy_mcp.server.browser_take_screenshot.fn", new_callable=AsyncMock) as mock_screenshot:
+
         # Different return types: dict, dict, string (blob URI)
-        mock_tool.side_effect = [
-            {"success": True},
-            {"snapshot": {"data": "value"}},
-            "blob://123-abc.png",
-        ]
+        mock_nav.return_value = {"success": True}
+        mock_snap.return_value = {"snapshot": {"data": "value"}}
+        mock_screenshot.return_value = "blob://123-abc.png"
 
         result = await browser_execute_bulk(
             commands=[
@@ -274,17 +284,18 @@ async def test_bulk_execution_mixed_response_types():
 @pytest.mark.asyncio
 async def test_bulk_execution_no_return_results():
     """Test execution with no return_result flags (all None)."""
-    with patch("playwright_proxy_mcp.server._call_playwright_tool", new_callable=AsyncMock) as mock_tool:
-        mock_tool.side_effect = [
-            {"status": "ok"},
-            {"status": "ok"},
-            {"status": "ok"},
-        ]
+    with patch("playwright_proxy_mcp.server.browser_navigate.fn", new_callable=AsyncMock) as mock_nav, \
+         patch("playwright_proxy_mcp.server.browser_click.fn", new_callable=AsyncMock) as mock_click, \
+         patch("playwright_proxy_mcp.server.browser_wait_for.fn", new_callable=AsyncMock) as mock_wait:
+
+        mock_nav.return_value = {"status": "ok"}
+        mock_click.return_value = {"status": "ok"}
+        mock_wait.return_value = {"status": "ok"}
 
         result = await browser_execute_bulk(
             commands=[
                 {"tool": "browser_navigate", "args": {"url": "https://example.com"}},
-                {"tool": "browser_click", "args": {"element": "button"}},
+                {"tool": "browser_click", "args": {"element": "button", "ref": "e1"}},
                 {"tool": "browser_wait_for", "args": {"time": 500}},
             ]
         )
