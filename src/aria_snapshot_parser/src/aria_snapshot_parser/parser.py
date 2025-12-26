@@ -197,9 +197,16 @@ class AriaSnapshotParser:
             return None, self.errors
 
     def _process_yaml_node(
-        self, node: Any, yaml_path: str
+        self, node: Any, yaml_path: str, is_dict_value: bool = False
     ) -> list[AriaTemplateNode] | AriaTemplateNode | str | None:
-        """Process YAML node recursively."""
+        """Process YAML node recursively.
+
+        Args:
+            node: The YAML node to process
+            yaml_path: Path in YAML structure for error reporting
+            is_dict_value: True if this is a value from a dict (colon syntax), which should
+                          not be parsed as ARIA keys
+        """
         if node is None:
             return None
 
@@ -207,7 +214,8 @@ class AriaSnapshotParser:
             # Process list of nodes
             result = []
             for i, item in enumerate(node):
-                processed = self._process_yaml_node(item, f"{yaml_path}[{i}]")
+                # List items can be ARIA keys, so is_dict_value=False
+                processed = self._process_yaml_node(item, f"{yaml_path}[{i}]", is_dict_value=False)
                 if processed is not None:
                     if isinstance(processed, list):
                         result.extend(processed)
@@ -230,7 +238,11 @@ class AriaSnapshotParser:
             return self._process_dict(node, yaml_path)
 
         elif isinstance(node, str):
-            # Plain string might be an ARIA key like: button "Submit" [ref=e1]
+            # If this is a dict value (from colon syntax), treat as plain text
+            if is_dict_value:
+                return node
+
+            # Otherwise, might be an ARIA key like: button "Submit" [ref=e1]
             # Try to parse it as a key first
             aria_node = self._parse_key_with_antlr(node, yaml_path)
             if aria_node:
@@ -251,6 +263,7 @@ class AriaSnapshotParser:
         properties: dict[str, str] = {}
         children: list[Any] = []
         aria_node: AriaTemplateNode | None = None
+        name_override: AriaTextValue | None = None
 
         for key, value in node_dict.items():
             if key.startswith("/"):
@@ -267,8 +280,10 @@ class AriaSnapshotParser:
                 aria_node = self._parse_key_with_antlr(key, yaml_path)
 
                 if aria_node and value is not None:
-                    # Process children (value is usually a list)
-                    processed_children = self._process_yaml_node(value, f"{yaml_path}.{key}")
+                    # Process value - mark as dict value so strings aren't parsed as ARIA keys
+                    processed_children = self._process_yaml_node(
+                        value, f"{yaml_path}.{key}", is_dict_value=True
+                    )
                     if processed_children is not None:
                         if isinstance(processed_children, list):
                             # Extract properties from children
@@ -283,14 +298,21 @@ class AriaSnapshotParser:
                                         continue
                                 actual_children.append(child)
                             children.extend(actual_children)
+                        elif isinstance(processed_children, str):
+                            # Single string value should become the node's name (colon syntax)
+                            # e.g., "paragraph [ref=e4]: This is text" -> name = "This is text"
+                            name_override = AriaTextValue(value=processed_children, is_regex=False)
                         else:
                             children.append(processed_children)
 
         if aria_node:
+            # Use name from colon syntax if provided, otherwise use name from key
+            final_name = name_override if name_override else aria_node.name
+
             # Update node with children and properties
             return AriaTemplateNode(
                 role=aria_node.role,
-                name=aria_node.name,
+                name=final_name,
                 children=tuple(children),
                 props={**aria_node.props, **properties},
                 checked=aria_node.checked,
