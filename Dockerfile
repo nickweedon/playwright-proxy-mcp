@@ -92,6 +92,12 @@ WORKDIR /workspace
 # Copy filtered production files
 COPY --from=filtered-source /filtered /workspace
 
+# Install aria-snapshot-parser from local directory first
+# This must be installed before the main project since the main project depends on it
+RUN if [ -d "/workspace/src/aria_snapshot_parser" ]; then \
+        cd /workspace/src/aria_snapshot_parser && uv pip install --system .; \
+    fi
+
 # Install production dependencies
 RUN uv sync --frozen --no-dev 2>/dev/null || uv sync --no-dev
 
