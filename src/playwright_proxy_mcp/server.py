@@ -515,6 +515,177 @@ async def browser_navigate_back() -> dict[str, Any]:
 
 
 # =============================================================================
+# BULK EXECUTION TOOL
+# =============================================================================
+
+
+@mcp.tool()
+async def browser_execute_bulk(
+    commands: list[dict[str, Any]],
+    stop_on_error: bool = True,
+    return_all_results: bool = False,
+) -> dict[str, Any]:
+    """
+    Execute multiple browser commands sequentially in a single call.
+
+    Optimizes common workflows by reducing round-trip overhead. Useful for
+    patterns like navigate→wait→snapshot or navigate→click→wait→extract.
+
+    Args:
+        commands: Array of commands to execute sequentially. Each command:
+            - tool (str, required): Tool name (e.g., "browser_navigate")
+            - args (dict, required): Tool arguments as key-value pairs
+            - return_result (bool, optional): Include result in response (default: False)
+
+        stop_on_error: Stop execution on first error (default: True).
+            If False, continues executing remaining commands and collects all errors.
+
+        return_all_results: Return results from all commands (default: False).
+            If False, only returns results where return_result=True.
+            Note: Setting this to True may consume significant tokens for large responses.
+
+    Returns:
+        BulkExecutionResponse with execution metadata and selective results.
+
+        Response structure:
+        {
+            "success": bool,           # True if all commands succeeded
+            "executed_count": int,     # Commands executed before stop/completion
+            "total_count": int,        # Total commands in request
+            "results": list[Any],      # Results array (null for non-returned)
+            "errors": list[str|null],  # Errors array (null for successful)
+            "stopped_at": int|null     # Index where stopped (if stop_on_error)
+        }
+
+    Common Workflow Examples:
+
+        # Navigate, wait, extract (only return final snapshot)
+        browser_execute_bulk(
+            commands=[
+                {"tool": "browser_navigate", "args": {"url": "...", "silent_mode": true}},
+                {"tool": "browser_wait_for", "args": {"text": "Loaded"}},
+                {"tool": "browser_snapshot", "args": {"jmespath_query": "...", "output_format": "json"}, "return_result": true}
+            ]
+        )
+
+        # Multi-step interaction (return intermediate states)
+        browser_execute_bulk(
+            commands=[
+                {"tool": "browser_navigate", "args": {"url": "..."}},
+                {"tool": "browser_click", "args": {"element": "button", "ref": "e1"}},
+                {"tool": "browser_wait_for", "args": {"time": 1000}},
+                {"tool": "browser_snapshot", "args": {}, "return_result": true}
+            ],
+            stop_on_error=true,
+            return_all_results=false
+        )
+
+        # Form filling workflow
+        browser_execute_bulk(
+            commands=[
+                {"tool": "browser_navigate", "args": {"url": "...", "silent_mode": true}},
+                {"tool": "browser_type", "args": {"element": "textbox", "ref": "e1", "text": "value"}},
+                {"tool": "browser_click", "args": {"element": "button", "ref": "e2"}},
+                {"tool": "browser_wait_for", "args": {"text": "Success"}},
+                {"tool": "browser_snapshot", "args": {"output_format": "json"}, "return_result": true}
+            ]
+        )
+
+    Error Handling:
+        - Invalid tool names are caught during execution
+        - Missing required arguments cause immediate failure for that command
+        - If stop_on_error=True, execution halts at first error
+        - If stop_on_error=False, all commands execute and errors are collected
+
+    Performance Notes:
+        - Use silent_mode=True on navigation to skip large ARIA snapshots
+        - Set return_result=True only on final/critical commands
+        - Consider pagination for large result sets
+    """
+    # Validate non-empty commands array
+    if not commands:
+        return {
+            "success": False,
+            "executed_count": 0,
+            "total_count": 0,
+            "results": [],
+            "errors": ["commands array cannot be empty"],
+            "stopped_at": None,
+        }
+
+    # Validate each command structure
+    for idx, cmd in enumerate(commands):
+        if not isinstance(cmd, dict):
+            return {
+                "success": False,
+                "executed_count": 0,
+                "total_count": len(commands),
+                "results": [],
+                "errors": [f"Command at index {idx} is not a dictionary"],
+                "stopped_at": None,
+            }
+        if "tool" not in cmd:
+            return {
+                "success": False,
+                "executed_count": 0,
+                "total_count": len(commands),
+                "results": [],
+                "errors": [f"Command at index {idx} missing required 'tool' field"],
+                "stopped_at": None,
+            }
+        if "args" not in cmd:
+            return {
+                "success": False,
+                "executed_count": 0,
+                "total_count": len(commands),
+                "results": [],
+                "errors": [f"Command at index {idx} missing required 'args' field"],
+                "stopped_at": None,
+            }
+
+    # Execute commands sequentially
+    results: list[Any | None] = []
+    errors: list[str | None] = []
+    executed_count = 0
+    stopped_at: int | None = None
+
+    for idx, cmd in enumerate(commands):
+        tool_name = cmd["tool"]
+        args = cmd.get("args", {})
+        return_result = cmd.get("return_result", False) or return_all_results
+
+        try:
+            result = await _call_playwright_tool(tool_name, args)
+            results.append(result if return_result else None)
+            errors.append(None)
+            executed_count += 1
+        except Exception as e:
+            # Continue silently - store error, null result
+            results.append(None)
+            errors.append(str(e))
+            executed_count += 1
+
+            if stop_on_error:
+                stopped_at = idx
+                break
+
+    # Fill remaining slots if stopped early
+    if stopped_at is not None:
+        remaining = len(commands) - executed_count
+        results.extend([None] * remaining)
+        errors.extend([None] * remaining)
+
+    return {
+        "success": all(err is None for err in errors),
+        "executed_count": executed_count,
+        "total_count": len(commands),
+        "results": results,
+        "errors": errors,
+        "stopped_at": stopped_at,
+    }
+
+
+# =============================================================================
 # SCREENSHOT & PDF TOOLS
 # =============================================================================
 

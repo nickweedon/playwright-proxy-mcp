@@ -65,3 +65,22 @@ class NavigationResponse(TypedDict, total=False):
     error: str | None
     query_applied: str | None
     output_format: str
+
+
+class BulkCommand(TypedDict, total=False):
+    """Single command in a bulk execution."""
+
+    tool: str  # Required: tool name (e.g., "browser_navigate")
+    args: dict[str, str]  # Required: tool arguments
+    return_result: bool  # Optional: include result in response (default: False)
+
+
+class BulkExecutionResponse(TypedDict):
+    """Response from bulk command execution."""
+
+    success: bool  # Overall success (all commands succeeded)
+    executed_count: int  # Number of commands executed
+    total_count: int  # Total commands in request
+    results: list  # Results array (None for non-returned results)
+    errors: list  # Errors array (None for successful commands)
+    stopped_at: int | None  # Index where execution stopped (if stop_on_error)
