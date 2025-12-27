@@ -64,6 +64,10 @@ class PlaywrightConfig(TypedDict, total=False):
     init_script: str | None
     ignore_https_errors: bool
 
+    # Extension support
+    extension: bool
+    extension_token: str | None
+
 
 class BlobConfig(TypedDict):
     """Configuration for blob storage"""
@@ -153,6 +157,12 @@ def load_playwright_config() -> PlaywrightConfig:
     # Allow custom init script to override
     if init_script := os.getenv("PLAYWRIGHT_INIT_SCRIPT"):
         config["init_script"] = init_script
+
+    # Extension support
+    config["extension"] = _get_bool_env("PLAYWRIGHT_EXTENSION", False)
+
+    if extension_token := os.getenv("PLAYWRIGHT_MCP_EXTENSION_TOKEN"):
+        config["extension_token"] = extension_token
 
     return config
 

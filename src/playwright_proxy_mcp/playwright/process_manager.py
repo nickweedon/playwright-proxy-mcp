@@ -7,6 +7,7 @@ playwright-mcp Node.js server via npx.
 
 import asyncio
 import logging
+import os
 import shutil
 from asyncio.subprocess import Process
 
@@ -47,12 +48,21 @@ class PlaywrightProcessManager:
         logger.info(f"Starting playwright-mcp: {' '.join(command)}")
 
         try:
+            # Prepare environment variables for subprocess
+            env = os.environ.copy()
+
+            # Pass through extension token if configured
+            if "extension_token" in config and config["extension_token"]:
+                env["PLAYWRIGHT_MCP_EXTENSION_TOKEN"] = config["extension_token"]
+                logger.info("Extension token configured for subprocess")
+
             # Start subprocess with stdio pipes
             self.process = await asyncio.create_subprocess_exec(
                 *command,
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                env=env,
             )
 
             # Give it a moment to start
@@ -223,6 +233,10 @@ class PlaywrightProcessManager:
 
         if "ignore_https_errors" in config and config["ignore_https_errors"]:
             command.append("--ignore-https-errors")
+
+        # Extension support
+        if "extension" in config and config["extension"]:
+            command.append("--extension")
 
         return command
 
