@@ -118,7 +118,6 @@ async def test_browser_navigate_with_jmespath_query(mock_proxy_client, mock_navi
 
         # Verify the result
         assert result["success"] is True
-        assert result["query_applied"] == '[?role == `button`]'
         # Should have filtered to only buttons
         assert result["total_items"] == 2
 
@@ -454,7 +453,6 @@ async def test_browser_snapshot_advanced(mock_proxy_client, mock_navigation_cach
         # Verify the result
         assert isinstance(result, dict)
         assert result["success"] is True
-        assert result["query_applied"] == '[?role == `button`]'
         assert result["output_format"] == "json"
 
 

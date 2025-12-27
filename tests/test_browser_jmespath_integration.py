@@ -102,14 +102,12 @@ async def test_jmespath_filter_buttons(browser_setup):
     assert isinstance(result, dict), "Result should be a dictionary"
     assert result.get("success") is True, f"Navigation should succeed. Error: {result.get('error')}"
     assert result.get("url") == "https://example.com"
-    assert result.get("query_applied") == '[?role == `button`]'
     assert result.get("output_format") == "json"
 
     # Verify snapshot is returned (not silent mode)
     assert result.get("snapshot") is not None, "Query results should return snapshot"
 
     print(f"\n✓ Successfully filtered buttons with JMESPath")
-    print(f"✓ Query applied: {result.get('query_applied')}")
     print(f"✓ Output format: {result.get('output_format')}")
 
 
@@ -186,7 +184,6 @@ async def test_jmespath_filter_headings_with_pagination(browser_setup):
     assert isinstance(result, dict), "Result should be a dictionary"
     assert result.get("success") is True, f"Navigation should succeed. Error: {result.get('error')}"
     assert result.get("url") == "https://www.example.com"
-    assert result.get("query_applied") == "[].children[?role == `heading`]"
 
     # Verify pagination parameters
     assert result.get("limit") == 10, "Limit should be 10"
@@ -203,7 +200,6 @@ async def test_jmespath_filter_headings_with_pagination(browser_setup):
     assert total_items > 0, f"Should find at least one heading on example.com, found {total_items}"
 
     print("\n✓ Successfully filtered headings with JMESPath")
-    print(f"✓ Query applied: {result.get('query_applied')}")
     print(f"✓ Total items found: {total_items}")
     print(f"✓ Limit: {result.get('limit')}")
     print(f"✓ Has more: {result.get('has_more')}")

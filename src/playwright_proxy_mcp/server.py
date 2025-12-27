@@ -255,7 +255,6 @@ async def browser_navigate(
             "has_more": bool,  # True if more items available
             "snapshot": str | None,  # Formatted output or None if silent_mode
             "error": str | None,
-            "query_applied": str | None,
             "output_format": str
         }
 
@@ -445,7 +444,6 @@ async def browser_navigate(
 
     # Apply JMESPath query if provided
     result_data = snapshot_json
-    query_applied_str = None
 
     if jmespath_query:
         result_data, query_error = apply_jmespath_query(snapshot_json, jmespath_query)
@@ -460,10 +458,8 @@ async def browser_navigate(
                 limit=limit,
                 has_more=False,
                 snapshot=None,
-                query_applied=jmespath_query,
                 output_format=output_format,
             )
-        query_applied_str = jmespath_query
 
     # Handle pagination - wrap non-list in array for consistency
     paginated_data = None
@@ -498,7 +494,6 @@ async def browser_navigate(
         has_more=has_more,
         snapshot=formatted_output,
         error=None,
-        query_applied=query_applied_str,
         output_format=output_format.lower(),
     )
 
@@ -1167,7 +1162,6 @@ async def browser_snapshot(
 
     # Apply JMESPath query if provided
     result_data = snapshot_json
-    query_applied_str = None
 
     if jmespath_query:
         result_data, query_error = apply_jmespath_query(snapshot_json, jmespath_query)
@@ -1182,10 +1176,8 @@ async def browser_snapshot(
                 limit=limit,
                 has_more=False,
                 snapshot=None,
-                query_applied=jmespath_query,
                 output_format=output_format,
             )
-        query_applied_str = jmespath_query
 
     # Handle pagination - wrap non-list in array for consistency
     paginated_data = None
@@ -1220,7 +1212,6 @@ async def browser_snapshot(
         has_more=has_more,
         snapshot=formatted_output,
         error=None,
-        query_applied=query_applied_str,
         output_format=output_format.lower(),
     )
 

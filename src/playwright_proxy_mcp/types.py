@@ -63,7 +63,6 @@ class NavigationResponse(TypedDict, total=False):
     has_more: bool
     snapshot: str | None
     error: str | None
-    query_applied: str | None
     output_format: str
 
 
