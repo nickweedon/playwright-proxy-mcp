@@ -6,14 +6,14 @@ playwright-mcp Node.js server via npx.
 """
 
 import asyncio
-import logging
 import os
 import shutil
 from asyncio.subprocess import Process
 
+from ..utils.logging_config import get_logger, log_dict
 from .config import PlaywrightConfig
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class PlaywrightProcessManager:
@@ -36,25 +36,51 @@ class PlaywrightProcessManager:
         Raises:
             RuntimeError: If npx is not available or process fails to start
         """
+        logger.info("=" * 80)
+        logger.info("Configuring playwright-mcp subprocess")
+        logger.info("=" * 80)
+
         # Check if npx is available
-        if not shutil.which("npx"):
+        npx_path = shutil.which("npx")
+        if not npx_path:
+            logger.error("npx not found in PATH")
             raise RuntimeError(
                 "npx not found. Please ensure Node.js is installed and npx is in PATH."
             )
+        logger.info(f"npx found at: {npx_path}")
 
         # Build command
         command = await self._build_command(config)
 
-        logger.info(f"Starting playwright-mcp: {' '.join(command)}")
+        logger.info("Playwright MCP command configuration:")
+        logger.info(f"  Command: {' '.join(command)}")
+        logger.info(f"  Working directory: {os.getcwd()}")
+
+        # Log configuration (redacting sensitive values)
+        logger.info("Playwright configuration:")
+        log_dict(logger, "Configuration parameters:", dict(config))
 
         try:
             # Prepare environment variables for subprocess
             env = os.environ.copy()
 
+            # Track custom env vars
+            custom_env_vars = {}
+
             # Pass through extension token if configured
             if "extension_token" in config and config["extension_token"]:
                 env["PLAYWRIGHT_MCP_EXTENSION_TOKEN"] = config["extension_token"]
-                logger.info("Extension token configured for subprocess")
+                custom_env_vars["PLAYWRIGHT_MCP_EXTENSION_TOKEN"] = "***REDACTED***"
+
+            # Log environment variables (redact sensitive values)
+            if custom_env_vars:
+                logger.info("Custom environment variables:")
+                for key, value in custom_env_vars.items():
+                    logger.info(f"  {key}: {value}")
+            else:
+                logger.info("No custom environment variables set")
+
+            logger.info("Launching playwright-mcp subprocess...")
 
             # Start subprocess with stdio pipes
             self.process = await asyncio.create_subprocess_exec(
@@ -65,20 +91,81 @@ class PlaywrightProcessManager:
                 env=env,
             )
 
+            logger.info(f"Process created with PID: {self.process.pid}")
+
             # Give it a moment to start
             await asyncio.sleep(0.5)
 
             # Check if it's still running
             if self.process.returncode is not None:
-                stderr_data = await self.process.stderr.read() if self.process.stderr else b""
-                error_msg = stderr_data.decode("utf-8", errors="ignore")
-                raise RuntimeError(f"playwright-mcp failed to start: {error_msg}")
+                logger.error(f"Process exited immediately with code: {self.process.returncode}")
 
-            logger.info(f"playwright-mcp started with PID {self.process.pid}")
+                # Collect stderr and stdout
+                stderr_data = await self.process.stderr.read() if self.process.stderr else b""
+                stdout_data = await self.process.stdout.read() if self.process.stdout else b""
+
+                stderr_msg = stderr_data.decode("utf-8", errors="ignore").strip()
+                stdout_msg = stdout_data.decode("utf-8", errors="ignore").strip()
+
+                logger.error("Process output:")
+                if stdout_msg:
+                    logger.error(f"  STDOUT:\n{stdout_msg}")
+                else:
+                    logger.error("  STDOUT: (empty)")
+
+                if stderr_msg:
+                    logger.error(f"  STDERR:\n{stderr_msg}")
+                else:
+                    logger.error("  STDERR: (empty)")
+
+                error_detail = stderr_msg or stdout_msg or "No output captured"
+                raise RuntimeError(
+                    f"playwright-mcp failed to start (exit code {self.process.returncode}): {error_detail}"
+                )
+
+            logger.info(f"playwright-mcp started successfully (PID: {self.process.pid})")
+            logger.info("=" * 80)
             return self.process
 
         except Exception as e:
+            logger.error("=" * 80)
             logger.error(f"Failed to start playwright-mcp: {e}")
+            logger.error("=" * 80)
+
+            # Try to capture any process output if available
+            if self.process:
+                try:
+                    if self.process.returncode is None:
+                        # Process is still running, try to get partial output
+                        logger.info("Process is still running, attempting to capture output...")
+                        self.process.terminate()
+                        try:
+                            await asyncio.wait_for(self.process.wait(), timeout=2.0)
+                        except asyncio.TimeoutError:
+                            self.process.kill()
+                            await self.process.wait()
+
+                    # Collect any available output
+                    if self.process.stderr:
+                        stderr_data = await self.process.stderr.read()
+                        if stderr_data:
+                            logger.error(
+                                f"Process STDERR:\n{stderr_data.decode('utf-8', errors='ignore')}"
+                            )
+
+                    if self.process.stdout:
+                        stdout_data = await self.process.stdout.read()
+                        if stdout_data:
+                            logger.error(
+                                f"Process STDOUT:\n{stdout_data.decode('utf-8', errors='ignore')}"
+                            )
+
+                    if self.process.returncode is not None:
+                        logger.error(f"Process exit code: {self.process.returncode}")
+
+                except Exception as cleanup_error:
+                    logger.error(f"Error during cleanup: {cleanup_error}")
+
             raise RuntimeError(f"Failed to start playwright-mcp: {e}") from e
 
     async def stop(self) -> None:

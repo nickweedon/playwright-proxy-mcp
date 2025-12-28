@@ -68,9 +68,13 @@ class TestPlaywrightProcessManager:
         """Test handling of process start failure."""
         mock_process = Mock()
         mock_process.returncode = 1
+        mock_process.pid = 12345
         mock_stderr = Mock()
         mock_stderr.read = AsyncMock(return_value=b"Error message")
         mock_process.stderr = mock_stderr
+        mock_stdout = Mock()
+        mock_stdout.read = AsyncMock(return_value=b"")
+        mock_process.stdout = mock_stdout
 
         with patch("shutil.which", return_value="/usr/bin/npx"):
             with patch("asyncio.create_subprocess_exec", return_value=mock_process):

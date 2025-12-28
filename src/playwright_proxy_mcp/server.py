@@ -11,9 +11,7 @@ This server:
 4. Returns blob:// URIs for large binary data (retrieval delegated to MCP Resource Server)
 """
 
-import logging
 from contextlib import asynccontextmanager
-from pathlib import Path
 from typing import Any
 
 from fastmcp import FastMCP
@@ -26,23 +24,11 @@ from .playwright import (
     load_blob_config,
     load_playwright_config,
 )
+from .utils.logging_config import get_logger, setup_file_logging
 
-# Configure logging
-# NOTE: We log ONLY to file, NOT to stdout/stderr, because stdout is used
-# for MCP protocol communication with the client (FastMCP uses stdio transport).
-# Logging to stdout would corrupt the MCP protocol messages.
-log_dir = Path("logs")
-log_dir.mkdir(exist_ok=True)
-log_file = log_dir / "playwright-proxy-mcp.log"
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.FileHandler(log_file),
-    ],
-)
-logger = logging.getLogger(__name__)
+# Configure logging using centralized utility
+setup_file_logging(log_file="logs/playwright-proxy-mcp.log")
+logger = get_logger(__name__)
 
 # Global components
 playwright_config = None
@@ -85,6 +71,7 @@ async def lifespan_context(server):
 
         # Initialize navigation cache
         from .utils.navigation_cache import NavigationCache
+
         navigation_cache = NavigationCache(default_ttl=300)
 
         # Start playwright-mcp subprocess
