@@ -13,6 +13,7 @@ This server:
 
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 from fastmcp import FastMCP
@@ -27,9 +28,19 @@ from .playwright import (
 )
 
 # Configure logging
+# NOTE: We log ONLY to file, NOT to stdout/stderr, because stdout is used
+# for MCP protocol communication with the client (FastMCP uses stdio transport).
+# Logging to stdout would corrupt the MCP protocol messages.
+log_dir = Path("logs")
+log_dir.mkdir(exist_ok=True)
+log_file = log_dir / "playwright-proxy-mcp.log"
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.FileHandler(log_file),
+    ],
 )
 logger = logging.getLogger(__name__)
 
