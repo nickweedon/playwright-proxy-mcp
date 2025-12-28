@@ -47,8 +47,9 @@ class MCPLoggingMiddleware(Middleware):
 
     async def on_call_tool(self, context: MiddlewareContext, call_next):
         """Log tool calls from MCP clients"""
-        tool_name = context.params.get("name", "unknown")
-        arguments = context.params.get("arguments", {})
+        # context.message is CallToolRequestParams (TypedDict with name, arguments)
+        tool_name = context.message.get("name", "unknown")
+        arguments = context.message.get("arguments", {})
 
         start_time = time.time()
 
@@ -75,7 +76,8 @@ class MCPLoggingMiddleware(Middleware):
 
     async def on_read_resource(self, context: MiddlewareContext, call_next):
         """Log resource reads from MCP clients"""
-        uri = context.params.get("uri", "unknown")
+        # context.message is ReadResourceRequestParams (TypedDict with uri)
+        uri = str(context.message.get("uri", "unknown"))
 
         start_time = time.time()
 
@@ -97,8 +99,9 @@ class MCPLoggingMiddleware(Middleware):
 
     async def on_get_prompt(self, context: MiddlewareContext, call_next):
         """Log prompt requests from MCP clients"""
-        name = context.params.get("name", "unknown")
-        arguments = context.params.get("arguments", {})
+        # context.message is GetPromptRequestParams (TypedDict with name, arguments)
+        name = context.message.get("name", "unknown")
+        arguments = context.message.get("arguments", {})
 
         start_time = time.time()
 
@@ -189,8 +192,10 @@ class MCPLoggingMiddleware(Middleware):
 
     async def on_initialize(self, context: MiddlewareContext, call_next):
         """Log MCP initialization from clients"""
-        client_info = context.params.get("clientInfo", {})
-        protocol_version = context.params.get("protocolVersion", "unknown")
+        # context.message is InitializeRequest (has params field with clientInfo, protocolVersion)
+        params = context.message.get("params", {})
+        client_info = params.get("clientInfo", {})
+        protocol_version = params.get("protocolVersion", "unknown")
 
         logger.info(
             f"CLIENT_MCP → Initialize: {client_info.get('name', 'unknown')} "
