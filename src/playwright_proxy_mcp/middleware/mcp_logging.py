@@ -47,9 +47,9 @@ class MCPLoggingMiddleware(Middleware):
 
     async def on_call_tool(self, context: MiddlewareContext, call_next):
         """Log tool calls from MCP clients"""
-        # context.message is CallToolRequestParams (TypedDict with name, arguments)
-        tool_name = context.message.get("name", "unknown")
-        arguments = context.message.get("arguments", {})
+        # context.message is CallToolRequestParams (Pydantic model with name, arguments)
+        tool_name = getattr(context.message, "name", "unknown")
+        arguments = getattr(context.message, "arguments", {}) or {}
 
         start_time = time.time()
 
@@ -76,8 +76,8 @@ class MCPLoggingMiddleware(Middleware):
 
     async def on_read_resource(self, context: MiddlewareContext, call_next):
         """Log resource reads from MCP clients"""
-        # context.message is ReadResourceRequestParams (TypedDict with uri)
-        uri = str(context.message.get("uri", "unknown"))
+        # context.message is ReadResourceRequestParams (Pydantic model with uri)
+        uri = str(getattr(context.message, "uri", "unknown"))
 
         start_time = time.time()
 
@@ -99,9 +99,9 @@ class MCPLoggingMiddleware(Middleware):
 
     async def on_get_prompt(self, context: MiddlewareContext, call_next):
         """Log prompt requests from MCP clients"""
-        # context.message is GetPromptRequestParams (TypedDict with name, arguments)
-        name = context.message.get("name", "unknown")
-        arguments = context.message.get("arguments", {})
+        # context.message is GetPromptRequestParams (Pydantic model with name, arguments)
+        name = getattr(context.message, "name", "unknown")
+        arguments = getattr(context.message, "arguments", {}) or {}
 
         start_time = time.time()
 
@@ -192,14 +192,27 @@ class MCPLoggingMiddleware(Middleware):
 
     async def on_initialize(self, context: MiddlewareContext, call_next):
         """Log MCP initialization from clients"""
-        # context.message is InitializeRequest (has params field with clientInfo, protocolVersion)
-        params = context.message.get("params", {})
-        client_info = params.get("clientInfo", {})
-        protocol_version = params.get("protocolVersion", "unknown")
+        # context.message is InitializeRequest (Pydantic model with params attribute)
+        params = getattr(context.message, "params", None)
+        if params:
+            client_info = getattr(params, "clientInfo", None)
+            protocol_version = getattr(params, "protocolVersion", "unknown")
+
+            # clientInfo is also a Pydantic model (Implementation)
+            if client_info:
+                client_name = getattr(client_info, "name", "unknown")
+                client_version = getattr(client_info, "version", "unknown")
+            else:
+                client_name = "unknown"
+                client_version = "unknown"
+        else:
+            client_name = "unknown"
+            client_version = "unknown"
+            protocol_version = "unknown"
 
         logger.info(
-            f"CLIENT_MCP → Initialize: {client_info.get('name', 'unknown')} "
-            f"v{client_info.get('version', 'unknown')} (protocol: {protocol_version})"
+            f"CLIENT_MCP → Initialize: {client_name} "
+            f"v{client_version} (protocol: {protocol_version})"
         )
 
         try:
