@@ -233,12 +233,12 @@ class PlaywrightProcessManager:
 
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.head(
+                async with session.get(
                     f"http://{PLAYWRIGHT_HTTP_HOST}:{PLAYWRIGHT_HTTP_PORT}/mcp",
                     timeout=aiohttp.ClientTimeout(total=2.0),
                 ) as resp:
                     # Accept various status codes - just checking if server responds
-                    return resp.status in (200, 404, 405)
+                    return resp.status in (200, 400, 405, 500)
         except Exception:
             return False
 
@@ -264,12 +264,14 @@ class PlaywrightProcessManager:
 
             try:
                 async with aiohttp.ClientSession() as session:
-                    # Use HEAD request to check if endpoint exists
-                    async with session.head(
+                    # Use GET request to check if endpoint exists
+                    # MCP servers typically don't support HEAD on /mcp endpoint
+                    async with session.get(
                         url, timeout=aiohttp.ClientTimeout(total=1.0)
                     ) as resp:
-                        # Accept 200, 404, or 405 (endpoint exists but may not support HEAD)
-                        if resp.status in (200, 404, 405):
+                        # Accept any response (200, 400, 405, etc.) - just checking server is up
+                        # The /mcp endpoint may return error for GET without proper request body
+                        if resp.status in (200, 400, 405, 500):
                             return True
             except (aiohttp.ClientError, asyncio.TimeoutError):
                 # Server not ready yet
