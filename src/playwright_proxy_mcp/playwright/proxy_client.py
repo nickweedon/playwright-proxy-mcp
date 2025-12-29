@@ -14,7 +14,7 @@ from typing import Any
 from fastmcp.client import Client
 from fastmcp.client.transports import StreamableHttpTransport
 
-from .config import PLAYWRIGHT_HTTP_HOST, PLAYWRIGHT_HTTP_PORT
+from .config import PLAYWRIGHT_HTTP_HOST
 from .middleware import BinaryInterceptionMiddleware
 from .process_manager import PlaywrightProcessManager
 
@@ -63,9 +63,13 @@ class PlaywrightProxyClient:
         # Start playwright-mcp HTTP server subprocess
         await self.process_manager.start(config)
 
-        # Create HTTP transport
+        # Get the actual port from process manager (discovered from server output)
+        actual_port = self.process_manager.get_port()
+        logger.info(f"Connecting to playwright-mcp on port {actual_port}")
+
+        # Create HTTP transport with discovered port
         transport = StreamableHttpTransport(
-            url=f"http://{PLAYWRIGHT_HTTP_HOST}:{PLAYWRIGHT_HTTP_PORT}/mcp"
+            url=f"http://{PLAYWRIGHT_HTTP_HOST}:{actual_port}/mcp"
         )
 
         # Create and connect FastMCP client
@@ -165,8 +169,8 @@ class PlaywrightProxyClient:
             # Call tool via FastMCP client
             result = await self._client.call_tool(tool_name, arguments)
 
-            # Check for errors
-            if result.isError:
+            # Check for errors (FastMCP Client uses snake_case: is_error)
+            if result.is_error:
                 # Extract error message from first content item
                 error_text = (
                     result.content[0].text if result.content else "Unknown error"

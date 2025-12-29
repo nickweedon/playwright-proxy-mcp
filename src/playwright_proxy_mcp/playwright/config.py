@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 
 # HTTP transport configuration
 PLAYWRIGHT_HTTP_HOST = "127.0.0.1"  # localhost only for security
-PLAYWRIGHT_HTTP_PORT = 8931  # Fixed port (internal to container)
+PLAYWRIGHT_HTTP_PORT = 0  # Ephemeral port (0 = OS assigns available port)
 
 # Load environment variables from .env file
 # Try multiple paths for .env file

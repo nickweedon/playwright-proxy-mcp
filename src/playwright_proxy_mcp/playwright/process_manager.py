@@ -22,6 +22,7 @@ class PlaywrightProcessManager:
     def __init__(self) -> None:
         self.process: Process | None = None
         self._shutdown_event = asyncio.Event()
+        self._actual_port: int | None = None  # Discovered port from server output
 
     async def start(self, config: PlaywrightConfig) -> Process:
         """
@@ -40,17 +41,72 @@ class PlaywrightProcessManager:
         logger.info("Configuring playwright-mcp subprocess")
         logger.info("=" * 80)
 
-        # Check if npx is available
-        npx_path = shutil.which("npx")
+        # Prefer Linux-native Node.js over Windows interop
+        # Check for nvm installation first
+        home_dir = os.path.expanduser("~")
+        nvm_dir = os.path.join(home_dir, ".nvm")
+        nvm_node_path = None
+
+        if os.path.isdir(nvm_dir):
+            # Find the default or latest node version in nvm
+            versions_dir = os.path.join(nvm_dir, "versions", "node")
+            if os.path.isdir(versions_dir):
+                versions = [d for d in os.listdir(versions_dir) if os.path.isdir(os.path.join(versions_dir, d))]
+                if versions:
+                    # Sort versions and take the latest
+                    versions.sort(reverse=True)
+                    latest_version = versions[0]
+                    nvm_node_path = os.path.join(versions_dir, latest_version, "bin")
+                    logger.info(f"Found nvm Node.js installation: {latest_version} at {nvm_node_path}")
+
+        # Check if npx is available, preferring nvm installation
+        npx_path = None
+        node_path = None
+        if nvm_node_path:
+            nvm_npx = os.path.join(nvm_node_path, "npx")
+            nvm_node = os.path.join(nvm_node_path, "node")
+            if os.path.isfile(nvm_npx) and os.path.isfile(nvm_node):
+                npx_path = nvm_npx
+                node_path = nvm_node
+                logger.info(f"Using nvm npx: {npx_path}")
+                logger.info(f"Using nvm node: {node_path}")
+
         if not npx_path:
-            logger.error("npx not found in PATH")
+            npx_path = shutil.which("npx")
+            node_path = shutil.which("node")
+
+        if not npx_path:
+            logger.error("npx not found in PATH or nvm installation")
             raise RuntimeError(
                 "npx not found. Please ensure Node.js is installed and npx is in PATH."
             )
         logger.info(f"npx found at: {npx_path}")
 
-        # Build command
-        command = await self._build_command(config)
+        # Verify we're using a Linux binary (not Windows .exe via WSL interop)
+        if node_path:
+            try:
+                import subprocess
+                result = subprocess.run(
+                    ["file", node_path],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+                if "ELF" in result.stdout:
+                    logger.info(f"✓ Verified Linux ELF binary: {node_path}")
+                elif "Windows" in result.stdout or ".exe" in result.stdout.lower():
+                    logger.warning(
+                        f"⚠ Windows binary detected: {node_path}. "
+                        "This may cause UNC path issues in WSL. "
+                        "Consider installing Linux-native Node.js via nvm."
+                    )
+                else:
+                    logger.info(f"Node binary type: {result.stdout.strip()}")
+            except Exception as e:
+                logger.debug(f"Could not verify node binary type: {e}")
+
+        # Build command using the resolved npx path
+        command = await self._build_command(config, npx_path)
 
         logger.info("Playwright MCP command configuration:")
         logger.info(f"  Command: {'\n'.join(command)}")
@@ -64,7 +120,14 @@ class PlaywrightProcessManager:
             # Prepare environment variables for subprocess
             #env = {k: v for k, v in os.environ.items() if k in ["PATH", "NODE_ENV"]}
             env = os.environ.copy()
-            
+
+            # Ensure nvm node binaries are in PATH (if using nvm)
+            if nvm_node_path:
+                # Prepend nvm path to ensure it takes precedence over Windows Node.js
+                current_path = env.get("PATH", "")
+                env["PATH"] = f"{nvm_node_path}:{current_path}"
+                logger.info(f"Prepended nvm path to PATH: {nvm_node_path}")
+
             # Pass through extension token if configured
             if "extension_token" in config and config["extension_token"]:
                 env["PLAYWRIGHT_MCP_EXTENSION_TOKEN"] = config["extension_token"]
@@ -198,6 +261,7 @@ class PlaywrightProcessManager:
             logger.error(f"Error stopping playwright-mcp: {e}")
         finally:
             self.process = None
+            self._actual_port = None  # Reset port on stop
 
     async def restart(self, config: PlaywrightConfig) -> Process:
         """
@@ -214,6 +278,20 @@ class PlaywrightProcessManager:
         await asyncio.sleep(1.0)  # Brief pause before restart
         return await self.start(config)
 
+    def get_port(self) -> int:
+        """
+        Get the actual port the server is listening on.
+
+        Returns:
+            The actual port number
+
+        Raises:
+            RuntimeError: If port hasn't been discovered yet
+        """
+        if self._actual_port is None:
+            raise RuntimeError("Port not discovered yet - server may not have started")
+        return self._actual_port
+
     async def is_healthy(self) -> bool:
         """
         Check if the playwright-mcp HTTP server is healthy.
@@ -221,7 +299,7 @@ class PlaywrightProcessManager:
         Returns:
             True if process is running AND HTTP endpoint is responsive
         """
-        if self.process is None:
+        if self.process is None or self._actual_port is None:
             return False
 
         # First check if process is still running
@@ -234,7 +312,7 @@ class PlaywrightProcessManager:
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(
-                    f"http://{PLAYWRIGHT_HTTP_HOST}:{PLAYWRIGHT_HTTP_PORT}/mcp",
+                    f"http://{PLAYWRIGHT_HTTP_HOST}:{self._actual_port}/mcp",
                     timeout=aiohttp.ClientTimeout(total=2.0),
                 ) as resp:
                     # Accept various status codes - just checking if server responds
@@ -245,6 +323,7 @@ class PlaywrightProcessManager:
     async def _wait_for_http_ready(self, timeout: float = 10.0) -> bool:
         """
         Wait for HTTP server to be ready by polling MCP endpoint.
+        This method waits for port discovery first, then polls the endpoint.
 
         Args:
             timeout: Maximum wait time in seconds
@@ -255,7 +334,27 @@ class PlaywrightProcessManager:
         import aiohttp
 
         start_time = asyncio.get_event_loop().time()
-        url = f"http://{PLAYWRIGHT_HTTP_HOST}:{PLAYWRIGHT_HTTP_PORT}/mcp"
+
+        # First wait for port discovery (with half the timeout)
+        port_discovery_timeout = timeout / 2
+        while (asyncio.get_event_loop().time() - start_time) < port_discovery_timeout:
+            if self.process and self.process.returncode is not None:
+                # Process crashed
+                return False
+
+            if self._actual_port is not None:
+                logger.info(f"Port discovered: {self._actual_port}")
+                break
+
+            await asyncio.sleep(0.1)
+
+        if self._actual_port is None:
+            logger.error("Port not discovered within timeout")
+            return False
+
+        # Now poll the endpoint with the discovered port
+        url = f"http://{PLAYWRIGHT_HTTP_HOST}:{self._actual_port}/mcp"
+        logger.info(f"Polling HTTP endpoint: {url}")
 
         while (asyncio.get_event_loop().time() - start_time) < timeout:
             if self.process and self.process.returncode is not None:
@@ -310,11 +409,15 @@ class PlaywrightProcessManager:
         """
         Background task to read and log stderr from subprocess.
         Uses UPSTREAM_MCP prefix to distinguish from proxy logs.
+        Also extracts the actual port from the "Listening on" message.
         """
         if not self.process or not self.process.stderr:
             return
 
         try:
+            import re
+            port_pattern = re.compile(r"Listening on http://[^:]+:(\d+)")
+
             while True:
                 line = await self.process.stderr.readline()
                 if not line:
@@ -325,25 +428,32 @@ class PlaywrightProcessManager:
                 if stderr_line:
                     logger.warning(f"UPSTREAM_MCP [stderr] {stderr_line}")
 
+                    # Extract port from "Listening on http://localhost:PORT" message
+                    if self._actual_port is None:
+                        match = port_pattern.search(stderr_line)
+                        if match:
+                            self._actual_port = int(match.group(1))
+                            logger.info(f"Discovered actual port: {self._actual_port}")
+
         except asyncio.CancelledError:
             logger.debug("Stderr logger task cancelled")
             raise
         except Exception as e:
             logger.error(f"Error in stderr logger: {e}")
 
-    async def _build_command(self, config: PlaywrightConfig) -> list[str]:
+    async def _build_command(self, config: PlaywrightConfig, npx_path: str) -> list[str]:
         """
         Build the npx command with arguments from config.
 
         Args:
             config: Playwright configuration
+            npx_path: Absolute path to npx executable
 
         Returns:
             List of command and arguments
         """
-        # Use npx to run @playwright/mcp
-        # npx will use the globally installed version since we installed it with npm install -g
-        command = ["npx", "@playwright/mcp@latest"]
+        # Use the explicit npx path to ensure we use the correct Node.js installation
+        command = [npx_path, "@playwright/mcp@latest"]
 
         # HTTP transport configuration (REQUIRED for proxy to connect)
         command.extend(["--host", PLAYWRIGHT_HTTP_HOST])
