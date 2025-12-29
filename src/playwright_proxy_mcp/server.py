@@ -152,7 +152,7 @@ async def _call_playwright_tool(tool_name: str, arguments: dict[str, Any]) -> An
     Returns:
         Tool result (potentially transformed by middleware)
     """
-    if not proxy_client or not proxy_client.is_healthy():
+    if not proxy_client or not await proxy_client.is_healthy():
         raise RuntimeError("Playwright subprocess not running")
 
     # All tools now use the browser_ prefix directly matching playwright-mcp
@@ -1745,7 +1745,7 @@ async def browser_install() -> dict[str, Any]:
 @mcp.resource("playwright-proxy://status")
 async def get_proxy_status() -> str:
     """Get the current proxy status"""
-    if proxy_client and proxy_client.is_healthy():
+    if proxy_client and await proxy_client.is_healthy():
         return "Playwright MCP Proxy is running"
     else:
         return "Playwright MCP Proxy is not running"

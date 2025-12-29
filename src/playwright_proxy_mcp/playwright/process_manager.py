@@ -11,7 +11,7 @@ import shutil
 from asyncio.subprocess import Process
 
 from ..utils.logging_config import get_logger, log_dict
-from .config import PlaywrightConfig
+from .config import PLAYWRIGHT_HTTP_HOST, PLAYWRIGHT_HTTP_PORT, PlaywrightConfig
 
 logger = get_logger(__name__)
 
@@ -79,46 +79,38 @@ class PlaywrightProcessManager:
 
             logger.info("Launching playwright-mcp subprocess...")
 
-            # Start subprocess with stdio pipes
+            # Start subprocess with HTTP mode (no stdin needed, stdout/stderr for logging)
             self.process = await asyncio.create_subprocess_exec(
                 *command,
-                stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+                stdin=asyncio.subprocess.DEVNULL,  # No stdin needed for HTTP mode
+                stdout=asyncio.subprocess.PIPE,  # Keep for logging
+                stderr=asyncio.subprocess.PIPE,  # Keep for logging
                 env=env,
             )
 
             logger.info(f"Process created with PID: {self.process.pid}")
 
-            # Give it a moment to start
-            await asyncio.sleep(0.5)
+            # Start background tasks to log stdout/stderr
+            self._stdout_task = asyncio.create_task(self._log_stdout())
+            self._stderr_task = asyncio.create_task(self._log_stderr())
 
-            # Check if it's still running
-            if self.process.returncode is not None:
-                logger.error(f"Process exited immediately with code: {self.process.returncode}")
+            # Wait for HTTP server to be ready
+            logger.info("Waiting for HTTP server to be ready...")
+            ready = await self._wait_for_http_ready(timeout=10.0)
 
-                # Collect stderr and stdout
-                stderr_data = await self.process.stderr.read() if self.process.stderr else b""
-                stdout_data = await self.process.stdout.read() if self.process.stdout else b""
-
-                stderr_msg = stderr_data.decode("utf-8", errors="ignore").strip()
-                stdout_msg = stdout_data.decode("utf-8", errors="ignore").strip()
-
-                logger.error("Process output:")
-                if stdout_msg:
-                    logger.error(f"  STDOUT:\n{stdout_msg}")
+            if not ready:
+                # Process may have crashed - check returncode
+                if self.process.returncode is not None:
+                    raise RuntimeError(
+                        f"playwright-mcp HTTP server failed to start (exit code {self.process.returncode}). "
+                        "Check logs for UPSTREAM_MCP [stderr] messages."
+                    )
                 else:
-                    logger.error("  STDOUT: (empty)")
+                    raise RuntimeError(
+                        "playwright-mcp HTTP server did not become ready within 10 seconds"
+                    )
 
-                if stderr_msg:
-                    logger.error(f"  STDERR:\n{stderr_msg}")
-                else:
-                    logger.error("  STDERR: (empty)")
-
-                error_detail = stderr_msg or stdout_msg or "No output captured"
-                raise RuntimeError(
-                    f"playwright-mcp failed to start (exit code {self.process.returncode}): {error_detail}"
-                )
+            logger.info("playwright-mcp HTTP server is ready")
 
             logger.info(f"playwright-mcp started successfully (PID: {self.process.pid})")
             logger.info("=" * 80)
@@ -172,6 +164,21 @@ class PlaywrightProcessManager:
 
         logger.info("Stopping playwright-mcp subprocess...")
 
+        # Cancel stdout/stderr logging tasks
+        if hasattr(self, "_stdout_task") and self._stdout_task:
+            self._stdout_task.cancel()
+            try:
+                await self._stdout_task
+            except asyncio.CancelledError:
+                pass
+
+        if hasattr(self, "_stderr_task") and self._stderr_task:
+            self._stderr_task.cancel()
+            try:
+                await self._stderr_task
+            except asyncio.CancelledError:
+                pass
+
         try:
             # Try graceful termination first
             self.process.terminate()
@@ -207,18 +214,120 @@ class PlaywrightProcessManager:
         await asyncio.sleep(1.0)  # Brief pause before restart
         return await self.start(config)
 
-    def is_healthy(self) -> bool:
+    async def is_healthy(self) -> bool:
         """
-        Check if the playwright-mcp process is healthy.
+        Check if the playwright-mcp HTTP server is healthy.
 
         Returns:
-            True if process is running, False otherwise
+            True if process is running AND HTTP endpoint is responsive
         """
         if self.process is None:
             return False
 
-        # Check if process is still running
-        return self.process.returncode is None
+        # First check if process is still running
+        if self.process.returncode is not None:
+            return False
+
+        # Then check if HTTP endpoint is responsive
+        import aiohttp
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.head(
+                    f"http://{PLAYWRIGHT_HTTP_HOST}:{PLAYWRIGHT_HTTP_PORT}/mcp",
+                    timeout=aiohttp.ClientTimeout(total=2.0),
+                ) as resp:
+                    # Accept various status codes - just checking if server responds
+                    return resp.status in (200, 404, 405)
+        except Exception:
+            return False
+
+    async def _wait_for_http_ready(self, timeout: float = 10.0) -> bool:
+        """
+        Wait for HTTP server to be ready by polling MCP endpoint.
+
+        Args:
+            timeout: Maximum wait time in seconds
+
+        Returns:
+            True if server became ready, False otherwise
+        """
+        import aiohttp
+
+        start_time = asyncio.get_event_loop().time()
+        url = f"http://{PLAYWRIGHT_HTTP_HOST}:{PLAYWRIGHT_HTTP_PORT}/mcp"
+
+        while (asyncio.get_event_loop().time() - start_time) < timeout:
+            if self.process and self.process.returncode is not None:
+                # Process crashed
+                return False
+
+            try:
+                async with aiohttp.ClientSession() as session:
+                    # Use HEAD request to check if endpoint exists
+                    async with session.head(
+                        url, timeout=aiohttp.ClientTimeout(total=1.0)
+                    ) as resp:
+                        # Accept 200, 404, or 405 (endpoint exists but may not support HEAD)
+                        if resp.status in (200, 404, 405):
+                            return True
+            except (aiohttp.ClientError, asyncio.TimeoutError):
+                # Server not ready yet
+                pass
+
+            await asyncio.sleep(0.2)
+
+        return False
+
+    async def _log_stdout(self) -> None:
+        """
+        Background task to read and log stdout from subprocess.
+        Uses UPSTREAM_MCP prefix to distinguish from proxy logs.
+        """
+        if not self.process or not self.process.stdout:
+            return
+
+        try:
+            while True:
+                line = await self.process.stdout.readline()
+                if not line:
+                    break
+
+                # Decode and log stdout output
+                stdout_line = line.decode("utf-8", errors="replace").rstrip()
+                if stdout_line:
+                    logger.info(f"UPSTREAM_MCP [stdout] {stdout_line}")
+
+        except asyncio.CancelledError:
+            logger.debug("Stdout logger task cancelled")
+            raise
+        except Exception as e:
+            logger.error(f"Error in stdout logger: {e}")
+
+    async def _log_stderr(self) -> None:
+        """
+        Background task to read and log stderr from subprocess.
+        Uses UPSTREAM_MCP prefix to distinguish from proxy logs.
+        """
+        if not self.process or not self.process.stderr:
+            return
+
+        try:
+            while True:
+                line = await self.process.stderr.readline()
+                if not line:
+                    break
+
+                # Decode and log stderr output
+                stderr_line = line.decode("utf-8", errors="replace").rstrip()
+                if stderr_line:
+                    logger.warning(f"UPSTREAM_MCP [stderr] {stderr_line}")
+
+        except asyncio.CancelledError:
+            logger.debug("Stderr logger task cancelled")
+            raise
+        except Exception as e:
+            logger.error(f"Error in stderr logger: {e}")
 
     async def _build_command(self, config: PlaywrightConfig) -> list[str]:
         """
@@ -233,6 +342,11 @@ class PlaywrightProcessManager:
         # Use npx to run @playwright/mcp
         # npx will use the globally installed version since we installed it with npm install -g
         command = ["npx", "@playwright/mcp@latest"]
+
+        # HTTP transport configuration (REQUIRED for proxy to connect)
+        command.extend(["--host", PLAYWRIGHT_HTTP_HOST])
+        command.extend(["--port", str(PLAYWRIGHT_HTTP_PORT)])
+        command.extend(["--allowed-hosts", "*"])  # Disable DNS rebinding check for localhost
 
         # Browser
         if "browser" in config:
@@ -323,32 +437,3 @@ class PlaywrightProcessManager:
             command.append("--extension")
 
         return command
-
-    async def get_stderr_output(self) -> str:
-        """
-        Get any stderr output from the process (non-blocking).
-
-        Returns:
-            Stderr output as string
-        """
-        if self.process is None or self.process.stderr is None:
-            return ""
-
-        try:
-            # Try to read available data without blocking
-            data = b""
-            while True:
-                try:
-                    chunk = self.process.stderr.read(1024)
-                    if asyncio.iscoroutine(chunk):
-                        chunk = await asyncio.wait_for(chunk, timeout=0.1)
-                    if not chunk:
-                        break
-                    data += chunk
-                except asyncio.TimeoutError:
-                    break
-
-            return data.decode("utf-8", errors="ignore")
-        except Exception as e:
-            logger.debug(f"Error reading stderr: {e}")
-            return ""

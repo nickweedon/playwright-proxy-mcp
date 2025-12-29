@@ -11,6 +11,10 @@ from typing import TypedDict
 
 from dotenv import load_dotenv
 
+# HTTP transport configuration
+PLAYWRIGHT_HTTP_HOST = "127.0.0.1"  # localhost only for security
+PLAYWRIGHT_HTTP_PORT = 8931  # Fixed port (internal to container)
+
 # Load environment variables from .env file
 # Try multiple paths for .env file
 for env_path in [

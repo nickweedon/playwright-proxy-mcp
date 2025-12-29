@@ -1,18 +1,20 @@
 """
 Proxy client integration for playwright-mcp
 
-Manages the connection between FastMCP proxy and the playwright-mcp subprocess,
+Manages the connection between FastMCP proxy and the playwright-mcp HTTP server,
 integrating middleware for response transformation.
 
-Logging uses "UPSTREAM_MCP" prefix to distinguish from "CLIENT_MCP" logs.
+Uses FastMCP Client with StreamableHttpTransport for HTTP-based communication.
 """
 
-import asyncio
-import json
 import logging
 import time
 from typing import Any
 
+from fastmcp.client import Client
+from fastmcp.client.transports import StreamableHttpTransport
+
+from .config import PLAYWRIGHT_HTTP_HOST, PLAYWRIGHT_HTTP_PORT
 from .middleware import BinaryInterceptionMiddleware
 from .process_manager import PlaywrightProcessManager
 
@@ -23,8 +25,8 @@ class PlaywrightProxyClient:
     """
     Custom proxy client that integrates process management and middleware.
 
-    This class manages the playwright-mcp subprocess and provides hooks for
-    response transformation through middleware.
+    This class manages the playwright-mcp subprocess (running as HTTP server)
+    and provides hooks for response transformation through middleware.
     """
 
     def __init__(
@@ -41,18 +43,13 @@ class PlaywrightProxyClient:
         """
         self.process_manager = process_manager
         self.middleware = middleware
+        self._client: Client | None = None
         self._started = False
-        self._initialized = False
         self._available_tools: dict[str, Any] = {}
-        self._request_id = 0
-        self._pending_responses: dict[int, asyncio.Future] = {}
-        self._response_reader_task: asyncio.Task | None = None
-        self._stderr_reader_task: asyncio.Task | None = None
-        self._process_monitor_task: asyncio.Task | None = None
 
     async def start(self, config: Any) -> None:
         """
-        Start the proxy client and playwright-mcp subprocess.
+        Start the proxy client and playwright-mcp HTTP server.
 
         Args:
             config: Playwright configuration
@@ -63,20 +60,17 @@ class PlaywrightProxyClient:
 
         logger.info("Starting playwright proxy client...")
 
-        # Start playwright-mcp subprocess
+        # Start playwright-mcp HTTP server subprocess
         await self.process_manager.start(config)
 
-        # Start response reader task
-        self._response_reader_task = asyncio.create_task(self._read_responses())
+        # Create HTTP transport
+        transport = StreamableHttpTransport(
+            url=f"http://{PLAYWRIGHT_HTTP_HOST}:{PLAYWRIGHT_HTTP_PORT}/mcp"
+        )
 
-        # Start stderr reader task
-        self._stderr_reader_task = asyncio.create_task(self._read_stderr())
-
-        # Start process monitor task
-        self._process_monitor_task = asyncio.create_task(self._monitor_process_exit())
-
-        # Perform MCP handshake
-        await self._initialize_mcp()
+        # Create and connect FastMCP client
+        self._client = Client(transport=transport)
+        await self._client.__aenter__()
 
         # Discover available tools
         await self._discover_tools()
@@ -85,291 +79,70 @@ class PlaywrightProxyClient:
         logger.info("Playwright proxy client started")
 
     async def stop(self) -> None:
-        """Stop the proxy client and subprocess"""
+        """Stop the proxy client and HTTP server subprocess"""
         if not self._started:
             return
 
         logger.info("Stopping playwright proxy client...")
 
-        # Cancel response reader task
-        if self._response_reader_task:
-            self._response_reader_task.cancel()
+        # Disconnect FastMCP client
+        if self._client:
             try:
-                await self._response_reader_task
-            except asyncio.CancelledError:
-                pass
-
-        # Cancel stderr reader task
-        if self._stderr_reader_task:
-            self._stderr_reader_task.cancel()
-            try:
-                await self._stderr_reader_task
-            except asyncio.CancelledError:
-                pass
-
-        # Cancel process monitor task
-        if self._process_monitor_task:
-            self._process_monitor_task.cancel()
-            try:
-                await self._process_monitor_task
-            except asyncio.CancelledError:
-                pass
+                await self._client.__aexit__(None, None, None)
+            except Exception as e:
+                logger.error(f"Error disconnecting client: {e}")
+            finally:
+                self._client = None
 
         # Stop subprocess
         await self.process_manager.stop()
 
         self._started = False
-        self._initialized = False
         logger.info("Playwright proxy client stopped")
 
-    def is_healthy(self) -> bool:
+    async def is_healthy(self) -> bool:
         """
-        Check if proxy client is healthy.
+        Check if the proxy client is healthy.
 
         Returns:
-            True if process is running
+            True if client is started and process is healthy
         """
-        return self._started and self.process_manager.is_healthy()
+        if not self._started or not self._client:
+            return False
 
-    async def _send_request(self, method: str, params: Any = None) -> Any:
-        """
-        Send a JSON-RPC request to the playwright-mcp subprocess.
-
-        Args:
-            method: JSON-RPC method name
-            params: Optional parameters
-
-        Returns:
-            Response result
-
-        Raises:
-            RuntimeError: If request fails
-        """
-        # Check subprocess health before sending request
-        # Note: During initialization, _started is False but process should be healthy
-        if not self.process_manager.is_healthy():
-            raise RuntimeError("Playwright subprocess is not healthy or has terminated")
-
-        process = self.process_manager.process
-        if not process or not process.stdin or not process.stdout:
-            raise RuntimeError("Playwright subprocess not properly initialized")
-
-        # Generate request ID
-        self._request_id += 1
-        request_id = self._request_id
-
-        # Create future for response
-        future = asyncio.Future()
-        self._pending_responses[request_id] = future
-
-        # Create JSON-RPC request
-        request = {
-            "jsonrpc": "2.0",
-            "id": request_id,
-            "method": method,
-        }
-        if params is not None:
-            request["params"] = params
-
-        # Send request
-        request_json = json.dumps(request) + "\n"
-        logger.debug(f"UPSTREAM_MCP → Request {request_id}: {method}")
-        logger.debug(f"UPSTREAM_MCP   Params: {self._truncate_for_log(params)}")
-        process.stdin.write(request_json.encode("utf-8"))
-        await process.stdin.drain()
-
-        # Wait for response
-        start_time = time.time()
-        try:
-            response = await asyncio.wait_for(future, timeout=30.0)
-            duration = (time.time() - start_time) * 1000  # ms
-            logger.debug(f"UPSTREAM_MCP ← Response {request_id}: {method} ({duration:.2f}ms)")
-            return response
-        except asyncio.TimeoutError:
-            self._pending_responses.pop(request_id, None)
-            duration = (time.time() - start_time) * 1000  # ms
-            logger.error(
-                f"UPSTREAM_MCP ✗ Timeout {request_id}: {method} ({duration:.2f}ms) - Request timed out after 30s"
-            )
-            raise RuntimeError(f"Request timeout for method {method}")
-
-    async def _read_responses(self) -> None:
-        """Background task to read responses from subprocess"""
-        process = self.process_manager.process
-        if not process or not process.stdout:
-            return
-
-        try:
-            # Set a very large buffer limit for reading large JSON responses
-            # MCP responses can be very large (especially page snapshots)
-            process.stdout._limit = 10 * 1024 * 1024  # 10MB limit
-
-            while self.process_manager.is_healthy():
-                line = await process.stdout.readline()
-                if not line:
-                    # Empty read indicates EOF - process likely terminated
-                    logger.warning("UPSTREAM_MCP ✗ Empty read from stdout, subprocess may have terminated")
-                    break
-
-                try:
-                    response = json.loads(line.decode("utf-8"))
-
-                    # Handle response
-                    if "id" in response:
-                        request_id = response["id"]
-                        if request_id in self._pending_responses:
-                            future = self._pending_responses.pop(request_id)
-                            if "error" in response:
-                                error_info = response["error"]
-                                logger.error(
-                                    f"UPSTREAM_MCP ✗ Error response {request_id}: {error_info}"
-                                )
-                                future.set_exception(
-                                    RuntimeError(f"MCP error: {error_info}")
-                                )
-                            else:
-                                logger.debug(
-                                    f"UPSTREAM_MCP   Result {request_id}: {self._truncate_for_log(response.get('result'))}"
-                                )
-                                future.set_result(response.get("result"))
-                    else:
-                        # Log notifications (messages without id)
-                        if "method" in response:
-                            logger.debug(
-                                f"UPSTREAM_MCP ← Notification: {response.get('method')}"
-                            )
-
-                except json.JSONDecodeError as e:
-                    logger.error(
-                        f"UPSTREAM_MCP ✗ JSON decode error: {line.decode('utf-8')[:200]}: {e}"
-                    )
-                except Exception as e:
-                    logger.error(f"UPSTREAM_MCP ✗ Response processing error: {e}")
-
-            # If we exit the loop, check if process is still healthy
-            if not self.process_manager.is_healthy():
-                logger.error("UPSTREAM_MCP ✗ Response reader exiting: subprocess is no longer healthy")
-                # Fail any remaining pending requests that weren't caught by process monitor
-                if self._pending_responses:
-                    error = RuntimeError("Subprocess terminated while reading responses")
-                    for future in self._pending_responses.values():
-                        if not future.done():
-                            future.set_exception(error)
-                    self._pending_responses.clear()
-
-        except asyncio.CancelledError:
-            logger.debug("Response reader task cancelled")
-            raise
-        except Exception as e:
-            logger.error(f"Error in response reader: {e}")
-
-    async def _read_stderr(self) -> None:
-        """Background task to read and log stderr from subprocess"""
-        process = self.process_manager.process
-        if not process or not process.stderr:
-            return
-
-        try:
-            while True:
-                line = await process.stderr.readline()
-                if not line:
-                    break
-
-                # Decode and log stderr output
-                stderr_line = line.decode("utf-8", errors="replace").rstrip()
-                if stderr_line:
-                    logger.error(f"UPSTREAM_MCP [stderr] {stderr_line}")
-
-        except asyncio.CancelledError:
-            logger.debug("Stderr reader task cancelled")
-            raise
-        except Exception as e:
-            logger.error(f"Error in stderr reader: {e}")
-
-    async def _monitor_process_exit(self) -> None:
-        """
-        Background task to monitor subprocess exit and fail pending requests.
-
-        This proactively detects subprocess crashes and fails all pending
-        requests immediately instead of waiting for individual timeouts.
-        """
-        process = self.process_manager.process
-        if not process:
-            return
-
-        try:
-            # Wait for process to exit
-            returncode = await process.wait()
-
-            # Process has exited - fail all pending requests
-            logger.error(
-                f"UPSTREAM_MCP ✗ Subprocess terminated unexpectedly with exit code {returncode}"
-            )
-
-            # Fail all pending futures
-            pending_count = len(self._pending_responses)
-            if pending_count > 0:
-                logger.error(
-                    f"UPSTREAM_MCP ✗ Failing {pending_count} pending request(s) due to subprocess exit"
-                )
-
-                error = RuntimeError(
-                    f"Playwright subprocess terminated unexpectedly (exit code {returncode})"
-                )
-
-                for future in self._pending_responses.values():
-                    if not future.done():
-                        future.set_exception(error)
-
-                self._pending_responses.clear()
-
-            # Mark as not started to prevent new requests
-            self._started = False
-            self._initialized = False
-
-        except asyncio.CancelledError:
-            logger.debug("Process monitor task cancelled")
-            raise
-        except Exception as e:
-            logger.error(f"Error in process monitor: {e}")
-
-    async def _initialize_mcp(self) -> None:
-        """Perform MCP protocol handshake"""
-        logger.info("UPSTREAM_MCP → Initializing protocol with playwright-mcp...")
-
-        # Send initialize request
-        result = await self._send_request(
-            "initialize",
-            {
-                "protocolVersion": "2025-06-18",
-                "capabilities": {},
-                "clientInfo": {"name": "playwright-proxy-mcp", "version": "1.0.0"},
-            },
-        )
-
-        server_name = result.get("serverInfo", {}).get("name", "unknown")
-        server_version = result.get("serverInfo", {}).get("version", "unknown")
-        logger.info(f"UPSTREAM_MCP ← Initialized: {server_name} v{server_version}")
-        self._initialized = True
+        return await self.process_manager.is_healthy()
 
     async def _discover_tools(self) -> None:
-        """Discover available tools from playwright-mcp"""
-        logger.info("UPSTREAM_MCP → Discovering tools from playwright-mcp...")
+        """
+        Discover available tools from playwright-mcp.
+        """
+        try:
+            logger.info("UPSTREAM_MCP → Discovering tools...")
 
-        result = await self._send_request("tools/list")
-        tools = result.get("tools", [])
+            # List tools via FastMCP client
+            tools = await self._client.list_tools()
 
-        for tool in tools:
-            tool_name = tool.get("name")
-            if tool_name:
-                self._available_tools[tool_name] = tool
-                logger.debug(f"UPSTREAM_MCP   Discovered tool: {tool_name}")
+            # Convert to dictionary
+            self._available_tools = {}
+            for tool in tools:
+                self._available_tools[tool.name] = {
+                    "name": tool.name,
+                    "description": tool.description,
+                    "inputSchema": tool.inputSchema,
+                }
 
-        logger.info(f"UPSTREAM_MCP ← Discovered {len(self._available_tools)} tools")
+            logger.info(
+                f"UPSTREAM_MCP ← Discovered {len(self._available_tools)} tools: "
+                f"{', '.join(self._available_tools.keys())}"
+            )
+
+        except Exception as e:
+            logger.error(f"UPSTREAM_MCP ✗ Tool discovery failed: {e}")
+            raise RuntimeError(f"Failed to discover tools: {e}") from e
 
     async def call_tool(self, tool_name: str, arguments: dict[str, Any]) -> Any:
         """
-        Call a tool on the playwright-mcp subprocess.
+        Call a tool on the upstream playwright-mcp server.
 
         Args:
             tool_name: Name of the tool to call
@@ -381,22 +154,24 @@ class PlaywrightProxyClient:
         Raises:
             RuntimeError: If tool call fails
         """
-        if not self._initialized:
-            raise RuntimeError("MCP client not initialized")
-
-        if tool_name not in self._available_tools:
-            raise RuntimeError(
-                f"Tool '{tool_name}' not found. Available tools: {list(self._available_tools.keys())}"
-            )
-
-        logger.info(f"UPSTREAM_MCP → Calling tool: {tool_name}")
-        logger.debug(f"UPSTREAM_MCP   Arguments: {self._truncate_for_log(arguments)}")
+        if not self._started or not self._client:
+            raise RuntimeError("Proxy client not started")
 
         start_time = time.time()
+
         try:
-            result = await self._send_request(
-                "tools/call", {"name": tool_name, "arguments": arguments}
-            )
+            logger.info(f"UPSTREAM_MCP → Calling tool: {tool_name}")
+
+            # Call tool via FastMCP client
+            result = await self._client.call_tool(tool_name, arguments)
+
+            # Check for errors
+            if result.isError:
+                # Extract error message from first content item
+                error_text = (
+                    result.content[0].text if result.content else "Unknown error"
+                )
+                raise RuntimeError(f"Tool call failed: {error_text}")
 
             # Transform through middleware
             transformed_result = await self.transform_response(tool_name, result)
@@ -409,7 +184,8 @@ class PlaywrightProxyClient:
         except Exception as e:
             duration = (time.time() - start_time) * 1000  # ms
             logger.error(
-                f"UPSTREAM_MCP ✗ Tool call failed: {tool_name} ({duration:.2f}ms) - {type(e).__name__}: {e}"
+                f"UPSTREAM_MCP ✗ Tool call failed: {tool_name} ({duration:.2f}ms) - "
+                f"{type(e).__name__}: {e}"
             )
             raise
 
@@ -431,7 +207,7 @@ class PlaywrightProxyClient:
 
         Args:
             tool_name: Name of the tool that was called
-            response: Response from playwright-mcp
+            response: Response from playwright-mcp (CallToolResult)
 
         Returns:
             Potentially transformed response
@@ -451,29 +227,3 @@ class PlaywrightProxyClient:
             The playwright-mcp subprocess
         """
         return self.process_manager.process
-
-    def _truncate_for_log(self, data: Any, max_length: int = 500) -> str:
-        """
-        Truncate data for logging to prevent log flooding.
-
-        Args:
-            data: Data to truncate
-            max_length: Maximum string length (default: 500)
-
-        Returns:
-            Truncated string representation
-        """
-        if data is None:
-            return "None"
-
-        try:
-            json_str = json.dumps(data, default=str)
-            if len(json_str) > max_length:
-                return json_str[:max_length] + f"... ({len(json_str)} chars total)"
-            return json_str
-        except Exception:
-            # Fallback to str() if JSON serialization fails
-            str_repr = str(data)
-            if len(str_repr) > max_length:
-                return str_repr[:max_length] + f"... ({len(str_repr)} chars total)"
-            return str_repr
