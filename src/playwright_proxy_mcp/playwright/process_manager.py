@@ -53,7 +53,7 @@ class PlaywrightProcessManager:
         command = await self._build_command(config)
 
         logger.info("Playwright MCP command configuration:")
-        logger.info(f"  Command: {' '.join(command)}")
+        logger.info(f"  Command: {'\n'.join(command)}")
         logger.info(f"  Working directory: {os.getcwd()}")
 
         # Log configuration (redacting sensitive values)
@@ -62,23 +62,20 @@ class PlaywrightProcessManager:
 
         try:
             # Prepare environment variables for subprocess
+            #env = {k: v for k, v in os.environ.items() if k in ["PATH", "NODE_ENV"]}
             env = os.environ.copy()
-
-            # Track custom env vars
-            custom_env_vars = {}
-
+            
             # Pass through extension token if configured
             if "extension_token" in config and config["extension_token"]:
                 env["PLAYWRIGHT_MCP_EXTENSION_TOKEN"] = config["extension_token"]
-                custom_env_vars["PLAYWRIGHT_MCP_EXTENSION_TOKEN"] = "***REDACTED***"
 
-            # Log environment variables (redact sensitive values)
-            if custom_env_vars:
-                logger.info("Custom environment variables:")
-                for key, value in custom_env_vars.items():
+            # Log subprocess environment variables
+            if env:
+                logger.info("Subprocess environment variables:")
+                for key, value in env.items():
                     logger.info(f"  {key}: {value}")
             else:
-                logger.info("No custom environment variables set")
+                logger.info("No subprocess environment variables set")
 
             logger.info("Launching playwright-mcp subprocess...")
 
@@ -235,7 +232,7 @@ class PlaywrightProcessManager:
         """
         # Use npx to run @playwright/mcp
         # npx will use the globally installed version since we installed it with npm install -g
-        command = ["npx", "@playwright/mcp"]
+        command = ["npx", "@playwright/mcp@latest"]
 
         # Browser
         if "browser" in config:

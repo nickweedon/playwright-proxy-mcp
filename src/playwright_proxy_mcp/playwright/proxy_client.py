@@ -47,6 +47,8 @@ class PlaywrightProxyClient:
         self._request_id = 0
         self._pending_responses: dict[int, asyncio.Future] = {}
         self._response_reader_task: asyncio.Task | None = None
+        self._stderr_reader_task: asyncio.Task | None = None
+        self._process_monitor_task: asyncio.Task | None = None
 
     async def start(self, config: Any) -> None:
         """
@@ -66,6 +68,12 @@ class PlaywrightProxyClient:
 
         # Start response reader task
         self._response_reader_task = asyncio.create_task(self._read_responses())
+
+        # Start stderr reader task
+        self._stderr_reader_task = asyncio.create_task(self._read_stderr())
+
+        # Start process monitor task
+        self._process_monitor_task = asyncio.create_task(self._monitor_process_exit())
 
         # Perform MCP handshake
         await self._initialize_mcp()
@@ -88,6 +96,22 @@ class PlaywrightProxyClient:
             self._response_reader_task.cancel()
             try:
                 await self._response_reader_task
+            except asyncio.CancelledError:
+                pass
+
+        # Cancel stderr reader task
+        if self._stderr_reader_task:
+            self._stderr_reader_task.cancel()
+            try:
+                await self._stderr_reader_task
+            except asyncio.CancelledError:
+                pass
+
+        # Cancel process monitor task
+        if self._process_monitor_task:
+            self._process_monitor_task.cancel()
+            try:
+                await self._process_monitor_task
             except asyncio.CancelledError:
                 pass
 
@@ -121,6 +145,11 @@ class PlaywrightProxyClient:
         Raises:
             RuntimeError: If request fails
         """
+        # Check subprocess health before sending request
+        # Note: During initialization, _started is False but process should be healthy
+        if not self.process_manager.is_healthy():
+            raise RuntimeError("Playwright subprocess is not healthy or has terminated")
+
         process = self.process_manager.process
         if not process or not process.stdin or not process.stdout:
             raise RuntimeError("Playwright subprocess not properly initialized")
@@ -175,9 +204,11 @@ class PlaywrightProxyClient:
             # MCP responses can be very large (especially page snapshots)
             process.stdout._limit = 10 * 1024 * 1024  # 10MB limit
 
-            while True:
+            while self.process_manager.is_healthy():
                 line = await process.stdout.readline()
                 if not line:
+                    # Empty read indicates EOF - process likely terminated
+                    logger.warning("UPSTREAM_MCP ✗ Empty read from stdout, subprocess may have terminated")
                     break
 
                 try:
@@ -215,11 +246,92 @@ class PlaywrightProxyClient:
                 except Exception as e:
                     logger.error(f"UPSTREAM_MCP ✗ Response processing error: {e}")
 
+            # If we exit the loop, check if process is still healthy
+            if not self.process_manager.is_healthy():
+                logger.error("UPSTREAM_MCP ✗ Response reader exiting: subprocess is no longer healthy")
+                # Fail any remaining pending requests that weren't caught by process monitor
+                if self._pending_responses:
+                    error = RuntimeError("Subprocess terminated while reading responses")
+                    for future in self._pending_responses.values():
+                        if not future.done():
+                            future.set_exception(error)
+                    self._pending_responses.clear()
+
         except asyncio.CancelledError:
             logger.debug("Response reader task cancelled")
             raise
         except Exception as e:
             logger.error(f"Error in response reader: {e}")
+
+    async def _read_stderr(self) -> None:
+        """Background task to read and log stderr from subprocess"""
+        process = self.process_manager.process
+        if not process or not process.stderr:
+            return
+
+        try:
+            while True:
+                line = await process.stderr.readline()
+                if not line:
+                    break
+
+                # Decode and log stderr output
+                stderr_line = line.decode("utf-8", errors="replace").rstrip()
+                if stderr_line:
+                    logger.error(f"UPSTREAM_MCP [stderr] {stderr_line}")
+
+        except asyncio.CancelledError:
+            logger.debug("Stderr reader task cancelled")
+            raise
+        except Exception as e:
+            logger.error(f"Error in stderr reader: {e}")
+
+    async def _monitor_process_exit(self) -> None:
+        """
+        Background task to monitor subprocess exit and fail pending requests.
+
+        This proactively detects subprocess crashes and fails all pending
+        requests immediately instead of waiting for individual timeouts.
+        """
+        process = self.process_manager.process
+        if not process:
+            return
+
+        try:
+            # Wait for process to exit
+            returncode = await process.wait()
+
+            # Process has exited - fail all pending requests
+            logger.error(
+                f"UPSTREAM_MCP ✗ Subprocess terminated unexpectedly with exit code {returncode}"
+            )
+
+            # Fail all pending futures
+            pending_count = len(self._pending_responses)
+            if pending_count > 0:
+                logger.error(
+                    f"UPSTREAM_MCP ✗ Failing {pending_count} pending request(s) due to subprocess exit"
+                )
+
+                error = RuntimeError(
+                    f"Playwright subprocess terminated unexpectedly (exit code {returncode})"
+                )
+
+                for future in self._pending_responses.values():
+                    if not future.done():
+                        future.set_exception(error)
+
+                self._pending_responses.clear()
+
+            # Mark as not started to prevent new requests
+            self._started = False
+            self._initialized = False
+
+        except asyncio.CancelledError:
+            logger.debug("Process monitor task cancelled")
+            raise
+        except Exception as e:
+            logger.error(f"Error in process monitor: {e}")
 
     async def _initialize_mcp(self) -> None:
         """Perform MCP protocol handshake"""
