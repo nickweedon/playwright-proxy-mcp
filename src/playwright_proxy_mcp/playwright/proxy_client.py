@@ -241,14 +241,43 @@ class PlaywrightProxyClient:
                 f"UPSTREAM_MCP ✗ Tool call timeout: {tool_name} ({duration:.2f}ms) - "
                 f"Exceeded {timeout_seconds:.0f} second timeout"
             )
-            raise RuntimeError(f"Tool call timeout after {timeout_seconds:.0f} seconds: {tool_name}") from e
+
+            # Timeout likely indicates client disconnection - attempt reconnection
+            if _retry_count == 0:
+                logger.warning(
+                    f"UPSTREAM_MCP ⟳ Timeout detected, checking process health before reconnection"
+                )
+
+                # Check if the process is still healthy
+                is_healthy = await self.process_manager.is_healthy()
+
+                if is_healthy:
+                    # Process is healthy, just reconnect the client
+                    logger.info("Process is healthy, attempting client reconnection")
+                    try:
+                        await self._reconnect_client()
+                        # Retry the tool call once
+                        return await self.call_tool(tool_name, arguments, _retry_count=1)
+                    except Exception as reconnect_error:
+                        logger.error(f"UPSTREAM_MCP ✗ Reconnection failed: {reconnect_error}")
+                        raise RuntimeError(f"Tool call timeout and reconnection failed: {e}") from e
+                else:
+                    # Process is unhealthy, need to restart it
+                    logger.warning("Process is unhealthy, restart required (manual intervention)")
+                    raise RuntimeError(
+                        f"Tool call timeout after {timeout_seconds:.0f} seconds and process is unhealthy. "
+                        f"Manual restart may be required: {tool_name}"
+                    ) from e
+            else:
+                # Already retried once, don't retry again
+                raise RuntimeError(f"Tool call timeout after {timeout_seconds:.0f} seconds: {tool_name}") from e
 
         except Exception as e:
             duration = (time.time() - start_time) * 1000  # ms
 
-            # Check if this is a session termination error and retry once
+            # Check if this is a session termination or client disconnection error and retry once
             error_str = str(e).lower()
-            if ("session terminated" in error_str or "session not found" in error_str) and _retry_count == 0:
+            if ("session terminated" in error_str or "session not found" in error_str or "client is not connected" in error_str) and _retry_count == 0:
                 logger.warning(
                     f"UPSTREAM_MCP ⟳ Session terminated, attempting to reconnect and retry: {tool_name} ({duration:.2f}ms)"
                 )

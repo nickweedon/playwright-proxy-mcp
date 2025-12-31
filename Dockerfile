@@ -131,7 +131,6 @@ RUN mkdir -p /mnt/blob-storage /workspace/playwright-output
 # Stage 4: Production stage
 FROM base AS production
 ENV PYTHONUNBUFFERED=1
-EXPOSE 8000
 
 # Mount points for persistence
 VOLUME ["/mnt/blob-storage", "/workspace/playwright-output"]
