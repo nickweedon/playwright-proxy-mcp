@@ -6,9 +6,7 @@ services:
     image: playwright-proxy-mcp:latest
     container_name: playwright-proxy-mcp
     env_file:
-      - .env
-    ports:
-      - "8000:8000"
+      - ./container-test.env
     volumes:
       # Persistent blob storage
       - blob-storage:/mnt/blob-storage

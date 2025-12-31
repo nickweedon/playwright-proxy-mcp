@@ -7,5 +7,6 @@ Steps:
 2. If any containers are found:
    - Stop and remove them using `docker rm -f <container_id>`
 3. Build the Docker image using `docker compose build`
+4. Smoke test the container by running `container-test.sh`
 
 Execute these steps sequentially and report the results of each operation.

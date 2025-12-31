@@ -1,0 +1,49 @@
+services:
+  playwright-proxy-mcp:
+    build:
+      context: .
+      target: production
+    image: playwright-proxy-mcp:latest
+    container_name: playwright-proxy-mcp
+    environment:
+      - PLAYWRIGHT_BROWSER=${PLAYWRIGHT_BROWSER:-chromium}
+      - PLAYWRIGHT_HEADLESS=${PLAYWRIGHT_HEADLESS:-true}
+      - PLAYWRIGHT_CAPS=${PLAYWRIGHT_CAPS:-vision,pdf}
+      - PLAYWRIGHT_OUTPUT_DIR=${PLAYWRIGHT_OUTPUT_DIR:-/app/playwright-output}
+      - PLAYWRIGHT_SAVE_SESSION=${PLAYWRIGHT_SAVE_SESSION:-true}
+      - PLAYWRIGHT_SAVE_TRACE=${PLAYWRIGHT_SAVE_TRACE:-false}
+      - PLAYWRIGHT_TIMEOUT_ACTION=${PLAYWRIGHT_TIMEOUT_ACTION:-5000}
+      - PLAYWRIGHT_TIMEOUT_NAVIGATION=${PLAYWRIGHT_TIMEOUT_NAVIGATION:-60000}
+      - PLAYWRIGHT_IMAGE_RESPONSES=${PLAYWRIGHT_IMAGE_RESPONSES:-allow}
+      - PLAYWRIGHT_STEALTH_MODE=${PLAYWRIGHT_STEALTH_MODE:-false}
+      - PLAYWRIGHT_IGNORE_HTTPS_ERRORS=${PLAYWRIGHT_IGNORE_HTTPS_ERRORS:-false}
+      - PLAYWRIGHT_EXTENSION=${PLAYWRIGHT_EXTENSION:-false}
+      - BLOB_STORAGE_ROOT=${BLOB_STORAGE_ROOT:-/mnt/blob-storage}
+      - BLOB_MAX_SIZE_MB=${BLOB_MAX_SIZE_MB:-500}
+      - BLOB_TTL_HOURS=${BLOB_TTL_HOURS:-24}
+      - BLOB_SIZE_THRESHOLD_KB=${BLOB_SIZE_THRESHOLD_KB:-50}
+      - BLOB_CLEANUP_INTERVAL_MINUTES=${BLOB_CLEANUP_INTERVAL_MINUTES:-60}
+      - PROXY_DEBUG=${PROXY_DEBUG:-false}
+    ports:
+      - "8000:8000"
+    volumes:
+      # Persistent blob storage
+      - blob-storage:/mnt/blob-storage
+      # Playwright session data, traces, videos
+      - playwright-output:/app/playwright-output
+    restart: unless-stopped
+    # Resource limits for browser automation
+    deploy:
+      resources:
+        limits:
+          memory: 4G      # Browsers are memory-intensive
+          cpus: '2.0'
+        reservations:
+          memory: 2G
+          cpus: '1.0'
+
+volumes:
+  blob-storage:
+    driver: local
+  playwright-output:
+    driver: local

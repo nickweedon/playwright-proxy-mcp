@@ -70,7 +70,7 @@ RUN rm -rf \
 # Stage 3: Base production image
 FROM python:${PYTHON_VERSION}-slim AS base
 
-# Install system dependencies
+# Install system dependencies including build tools for Python packages with C extensions
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     curl \
@@ -79,6 +79,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libmagic1 \
     # For Node.js (playwright-mcp)
     gnupg \
+    # Build tools for Python packages with C extensions (e.g., ruamel-yaml-clibz)
+    gcc \
+    g++ \
+    make \
+    python3-dev \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
@@ -98,8 +103,17 @@ RUN if [ -d "/workspace/src/aria_snapshot_parser" ]; then \
         cd /workspace/src/aria_snapshot_parser && uv pip install --system .; \
     fi
 
-# Install production dependencies
-RUN uv sync --frozen --no-dev 2>/dev/null || uv sync --no-dev
+# Install production dependencies and the package itself into system Python
+RUN uv sync --frozen --no-dev 2>/dev/null || uv sync --no-dev && \
+    uv pip install --system -e .
+
+# Remove build tools to reduce image size (keep runtime libraries)
+RUN apt-get purge -y --auto-remove \
+    gcc \
+    g++ \
+    make \
+    python3-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 # Pre-install @playwright/mcp and its Playwright browsers
 # This ensures browser versions match the @playwright/mcp requirements
@@ -107,7 +121,9 @@ RUN uv sync --frozen --no-dev 2>/dev/null || uv sync --no-dev
 # to ensure the correct playwright version installs its matching browsers
 RUN npm install -g @playwright/mcp@latest && \
     cd /usr/lib/node_modules/@playwright/mcp && \
-    npx playwright install chromium --with-deps
+    npx playwright install chromium --with-deps && \
+    npx playwright install chrome --with-deps
+
 
 # Create directories for blob storage and playwright output
 RUN mkdir -p /mnt/blob-storage /workspace/playwright-output
@@ -120,7 +136,7 @@ EXPOSE 8000
 # Mount points for persistence
 VOLUME ["/mnt/blob-storage", "/workspace/playwright-output"]
 
-CMD ["uv", "run", "playwright-proxy-mcp"]
+CMD ["playwright-proxy-mcp"]
 
 # Stage 5: Development stage with all files and additional tools
 FROM python:${PYTHON_VERSION}-slim AS development
@@ -188,7 +204,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # to ensure the correct playwright version installs its matching browsers
 RUN npm install -g @playwright/mcp@latest && \
     cd /usr/lib/node_modules/@playwright/mcp && \
-    npx playwright install chromium --with-deps
+    npx playwright install chromium --with-deps && \
+    npx playwright install chrome --with-deps
+
 
 # Create directories for blob storage and playwright output
 RUN mkdir -p /mnt/blob-storage /workspace/playwright-output
@@ -198,7 +216,7 @@ RUN chown -R vscode:vscode /workspace
 
 # Install Playwright browsers for vscode user as well
 # This is needed because the devcontainer runs as vscode user, not root
-RUN su - vscode -c "cd /usr/lib/node_modules/@playwright/mcp && npx playwright install chromium --with-deps"
+RUN su - vscode -c "cd /usr/lib/node_modules/@playwright/mcp && npx playwright install chromium --with-deps && npx playwright install chrome --with-deps"
 
 # Don't run uv sync here - let postCreateCommand handle it as vscode user
 # This avoids permission issues with the .venv directory

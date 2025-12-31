@@ -10,6 +10,15 @@ This is a proxy server for Microsoft's playwright-mcp built with Python and Fast
 
 When an issue may possibly have anything to do with the upstream Playwright MCP Server, perform web searches to look for know issues and/or documentation.
 
+## Testing the MCP container
+
+You should use the already installed mcptools (it will be in the path) utility for simple smoke testing of the container. It is installed already in the host and the mcptools command should only be run from the host.
+The main documentation for this tool can be found here: https://github.com/f/mcptools
+Additionally, here is a `known good` commandline that will list all of the tools available (note that this is running outside of docker of course):
+> mcptools tools uv run --env-file host-test.env playwright-proxy-mcp
+Also note that a env file is being passed which is necessary for the proxy server to start and run successfully.
+You can call `mcptools -h` to show help and then also again for mcptools commands, for example `mcptools tools -h`.
+
 ## Blob Storage Architecture
 
 This proxy server follows mcp_mapped_resource_lib best practices:

@@ -115,7 +115,6 @@ def load_playwright_config() -> PlaywrightConfig:
         "caps": os.getenv("PLAYWRIGHT_CAPS", "vision,pdf"),
         "save_session": _get_bool_env("PLAYWRIGHT_SAVE_SESSION", False),
         "save_trace": _get_bool_env("PLAYWRIGHT_SAVE_TRACE", False),
-        "output_dir": os.getenv("PLAYWRIGHT_OUTPUT_DIR", "/app/playwright-output"),
         "timeout_action": _get_int_env("PLAYWRIGHT_TIMEOUT_ACTION", 15000),
         "timeout_navigation": _get_int_env("PLAYWRIGHT_TIMEOUT_NAVIGATION", 5000),
         "image_responses": os.getenv("PLAYWRIGHT_IMAGE_RESPONSES", "allow"),
@@ -132,6 +131,9 @@ def load_playwright_config() -> PlaywrightConfig:
 
     if user_data_dir := os.getenv("PLAYWRIGHT_USER_DATA_DIR"):
         config["user_data_dir"] = user_data_dir
+
+    if output_dir := os.getenv("PLAYWRIGHT_OUTPUT_DIR"):
+        config["output_dir"] = output_dir
 
     if storage_state := os.getenv("PLAYWRIGHT_STORAGE_STATE"):
         config["storage_state"] = storage_state

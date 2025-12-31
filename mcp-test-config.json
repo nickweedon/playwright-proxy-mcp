@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "playwright-proxy-mcp-server": {
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "-e",
+        "PLAYWRIGHT_BROWSER=chromium",
+        "-e",
+        "PLAYWRIGHT_HEADLESS=true",
+        "playwright-proxy-mcp:latest",
+        "uv",
+        "run",
+        "playwright-proxy-mcp"
+      ],
+      "command": "docker"
+    }
+  }
+}
