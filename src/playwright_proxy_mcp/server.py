@@ -1663,6 +1663,28 @@ async def browser_wait_for(
     Returns:
         Wait result
     """
+    # Workaround for playwright-mcp 5-second ping timeout (issue #982)
+    # Split time-based waits >2 seconds into multiple 2-second chunks
+    # to avoid session termination on long waits
+    if time is not None and time > 2.0 and text is None and textGone is None:
+        logger.info(
+            f"Splitting browser_wait_for({time}s) into multiple 2s chunks "
+            f"to avoid 5-second ping timeout"
+        )
+
+        remaining = time
+        result = None
+
+        while remaining > 0:
+            chunk = min(2.0, remaining)
+            logger.debug(f"Executing wait chunk: {chunk}s (remaining: {remaining}s)")
+
+            result = await _call_playwright_tool("browser_wait_for", {"time": chunk})
+            remaining -= chunk
+
+        return result
+
+    # For text-based waits or short time waits, call directly
     args = {}
     if time is not None:
         args["time"] = time

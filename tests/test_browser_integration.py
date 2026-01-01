@@ -815,3 +815,88 @@ async def test_jmespath_filter_headings_with_pagination(browser_setup):
     print(f"✓ Limit: {result.get('limit')}")
     print(f"✓ Has more: {result.get('has_more')}")
     print(f"✓ Cache key: {result.get('cache_key')}")
+
+
+# ============================================================================
+# Wait Integration Tests
+# ============================================================================
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.asyncio
+async def test_browser_wait_for_time_integer(browser_setup):
+    """
+    Test browser_wait_for with integer time value using real browser.
+
+    This test verifies:
+    1. Wait functionality works with integer time values
+    2. Browser waits for the specified duration
+    3. Wait returns successfully
+    """
+    proxy_client, navigation_cache = browser_setup
+
+    # First navigate to a page
+    nav_result = await server.browser_navigate.fn(
+        url="https://example.com",
+        silent_mode=True
+    )
+    assert nav_result.get("success") is True, "Navigation should succeed"
+
+    # Wait for 3 seconds
+    import time
+    start_time = time.time()
+    wait_result = await server.browser_wait_for.fn(time=3)
+    elapsed_time = time.time() - start_time
+
+    # Verify wait succeeded
+    assert wait_result is not None, "Wait should return a result"
+
+    # Verify wait took at least 3 seconds (allow some margin for processing)
+    assert elapsed_time >= 2.5, f"Wait should take at least 2.5 seconds, took {elapsed_time:.2f}s"
+
+    print(f"\n✓ Successfully waited for 3 seconds (actual: {elapsed_time:.2f}s)")
+    print(f"✓ Wait with integer time value working")
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.asyncio
+async def test_browser_navigate_then_wait(browser_setup):
+    """
+    Test browser_navigate followed by browser_wait_for using real browser.
+
+    This test verifies:
+    1. Sequential navigation and wait operations work
+    2. Browser state is maintained between operations
+    3. Multiple operations can be chained together
+    """
+    proxy_client, navigation_cache = browser_setup
+
+    # First navigate to the page
+    nav_result = await server.browser_navigate.fn(
+        url="https://example.com",
+        silent_mode=True
+    )
+
+    # Verify navigation succeeded
+    assert nav_result is not None
+    assert isinstance(nav_result, dict)
+    assert nav_result.get("success") is True, f"Navigation failed: {nav_result.get('error')}"
+    assert nav_result.get("url") == "https://example.com"
+
+    # Then wait for 3 seconds
+    import time
+    start_time = time.time()
+    wait_result = await server.browser_wait_for.fn(time=3)
+    elapsed_time = time.time() - start_time
+
+    # Verify wait succeeded
+    assert wait_result is not None, "Wait should return a result"
+
+    # Verify wait took at least 3 seconds
+    assert elapsed_time >= 2.5, f"Wait should take at least 2.5 seconds, took {elapsed_time:.2f}s"
+
+    print(f"\n✓ Successfully navigated to example.com")
+    print(f"✓ Successfully waited for 3 seconds (actual: {elapsed_time:.2f}s)")
+    print(f"✓ Sequential navigation + wait workflow working")

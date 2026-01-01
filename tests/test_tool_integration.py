@@ -772,6 +772,26 @@ async def test_browser_wait_for_time(mock_proxy_client):
 
 
 @pytest.mark.asyncio
+async def test_browser_wait_for_time_integer(mock_proxy_client):
+    """Test browser_wait_for with integer time value."""
+    from playwright_proxy_mcp import server
+
+    mock_proxy_client.call_tool.return_value = {"status": "waited"}
+
+    with patch.object(server, "proxy_client", mock_proxy_client):
+        result = await server.browser_wait_for.fn(time=3)
+
+        # Verify the result
+        assert result == {"status": "waited"}
+
+        # Verify the proxy client was called
+        mock_proxy_client.call_tool.assert_called_once_with(
+            "browser_wait_for",
+            {"time": 3}
+        )
+
+
+@pytest.mark.asyncio
 async def test_browser_wait_for_text(mock_proxy_client):
     """Test browser_wait_for with text."""
     from playwright_proxy_mcp import server
@@ -803,6 +823,48 @@ async def test_browser_wait_for_text_gone(mock_proxy_client):
             "browser_wait_for",
             {"textGone": "Loading..."}
         )
+
+
+@pytest.mark.asyncio
+async def test_browser_navigate_then_wait(mock_proxy_client, mock_navigation_cache):
+    """Test browser_navigate followed by browser_wait_for."""
+    from playwright_proxy_mcp import server
+
+    # Mock responses for navigation and wait
+    navigate_response = {
+        "content": [
+            {
+                "type": "text",
+                "text": '- button "Submit" [ref=e1]'
+            }
+        ]
+    }
+    wait_response = {"status": "waited"}
+
+    # Setup mock to return different responses for different calls
+    mock_proxy_client.call_tool.side_effect = [navigate_response, wait_response]
+
+    with patch.object(server, "proxy_client", mock_proxy_client), \
+         patch.object(server, "navigation_cache", mock_navigation_cache):
+
+        # First navigate to the page
+        nav_result = await server.browser_navigate.fn(url="https://example.com")
+
+        # Verify navigation succeeded
+        assert nav_result["success"] is True
+        assert nav_result["url"] == "https://example.com"
+
+        # Then wait for 3 seconds
+        wait_result = await server.browser_wait_for.fn(time=3)
+
+        # Verify wait succeeded
+        assert wait_result == {"status": "waited"}
+
+        # Verify both calls were made in correct order
+        assert mock_proxy_client.call_tool.call_count == 2
+        calls = mock_proxy_client.call_tool.call_args_list
+        assert calls[0][0] == ("browser_navigate", {"url": "https://example.com"})
+        assert calls[1][0] == ("browser_wait_for", {"time": 3})
 
 
 # =============================================================================
