@@ -1,20 +1,23 @@
 """
 Proxy client integration for playwright-mcp
 
-Manages the connection between FastMCP proxy and the playwright-mcp HTTP server,
+Manages the connection between FastMCP proxy and the playwright-mcp subprocess,
 integrating middleware for response transformation.
 
-Uses FastMCP Client with StreamableHttpTransport for HTTP-based communication.
+Uses FastMCP Client with StdioTransport for stdio-based communication.
 """
 
 import asyncio
 import logging
+import os
+import shutil
 import time
 from typing import Any
 
 from fastmcp.client import Client
-from fastmcp.client.transports import StreamableHttpTransport
+from fastmcp.client.transports import StdioTransport
 
+from .config import PlaywrightConfig, should_use_windows_node
 from .middleware import BinaryInterceptionMiddleware
 from .process_manager import PlaywrightProcessManager
 
@@ -25,7 +28,7 @@ class PlaywrightProxyClient:
     """
     Custom proxy client that integrates process management and middleware.
 
-    This class manages the playwright-mcp subprocess (running as HTTP server)
+    This class manages the playwright-mcp subprocess (running via stdio transport)
     and provides hooks for response transformation through middleware.
     """
 
@@ -38,18 +41,19 @@ class PlaywrightProxyClient:
         Initialize proxy client.
 
         Args:
-            process_manager: Process manager for playwright-mcp
+            process_manager: Process manager for monitoring subprocess
             middleware: Binary interception middleware
         """
         self.process_manager = process_manager
         self.middleware = middleware
         self._client: Client | None = None
+        self._transport: StdioTransport | None = None
         self._started = False
         self._available_tools: dict[str, Any] = {}
 
-    async def start(self, config: Any) -> None:
+    async def start(self, config: PlaywrightConfig) -> None:
         """
-        Start the proxy client and playwright-mcp HTTP server.
+        Start the proxy client and playwright-mcp via stdio transport.
 
         Args:
             config: Playwright configuration
@@ -58,41 +62,56 @@ class PlaywrightProxyClient:
             logger.warning("Proxy client already started")
             return
 
-        logger.info("Starting playwright proxy client...")
+        logger.info("Starting playwright proxy client with stdio transport...")
 
-        # Start playwright-mcp HTTP server subprocess
-        await self.process_manager.start(config)
+        # Build command and environment
+        command = self._build_command(config)
+        env = self._build_env(config)
 
-        # Get the actual port from process manager (discovered from server output)
-        actual_port = self.process_manager.get_port()
-        logger.info(f"Connecting to playwright-mcp on port {actual_port}")
+        logger.info("=" * 80)
+        logger.info("Playwright MCP command configuration:")
+        logger.info(f"  Command: {' '.join(command)}")
+        logger.info(f"  Working directory: {os.getcwd()}")
+        logger.info("=" * 80)
 
-        # Get the playwright host from process manager (127.0.0.1 or WSL host IP)
-        playwright_host = self.process_manager._playwright_host
-
-        # Create HTTP transport with discovered port and host
-        transport = StreamableHttpTransport(
-            url=f"http://{playwright_host}:{actual_port}/mcp"
+        # Create stdio transport
+        self._transport = StdioTransport(
+            command=command[0],
+            args=command[1:],
+            env=env,
+            cwd=os.getcwd(),
+            keep_alive=True,
+            log_file=None,  # We handle logging via process_manager
         )
 
-        # Create and connect FastMCP client
-        self._client = Client(transport=transport)
+        # Create FastMCP client with stdio transport
+        self._client = Client(transport=self._transport)
+
+        # Start subprocess and connect
         await self._client.__aenter__()
+
+        # Note: StdioTransport manages subprocess internally
+        # Process monitoring via process_manager is optional with stdio transport
+        # The transport handles subprocess lifecycle automatically
 
         # Discover available tools
         await self._discover_tools()
 
         self._started = True
-        logger.info("Playwright proxy client started")
+        logger.info("Playwright proxy client started successfully via stdio")
+        logger.info("=" * 80)
 
     async def stop(self) -> None:
-        """Stop the proxy client and HTTP server subprocess"""
+        """Stop the proxy client and stdio subprocess"""
         if not self._started:
             return
 
         logger.info("Stopping playwright proxy client...")
 
-        # Disconnect FastMCP client
+        # Stop process monitoring
+        await self.process_manager.stop()
+
+        # Disconnect FastMCP client (automatically terminates subprocess)
         if self._client:
             try:
                 await self._client.__aexit__(None, None, None)
@@ -100,24 +119,195 @@ class PlaywrightProxyClient:
                 logger.error(f"Error disconnecting client: {e}")
             finally:
                 self._client = None
-
-        # Stop subprocess
-        await self.process_manager.stop()
+                self._transport = None
 
         self._started = False
         logger.info("Playwright proxy client stopped")
 
     async def is_healthy(self) -> bool:
         """
-        Check if the proxy client is healthy.
+        Check if proxy client is healthy with ping verification.
 
         Returns:
-            True if client is started and process is healthy
+            True if client is started and can respond to tool calls
         """
         if not self._started or not self._client:
             return False
 
-        return await self.process_manager.is_healthy()
+        # Try a lightweight tool call to verify MCP responsiveness
+        try:
+            # browser_tabs list is lightweight and doesn't navigate
+            await asyncio.wait_for(
+                self._client.call_tool("browser_tabs", {"action": "list"}),
+                timeout=3.0
+            )
+            return True
+        except Exception:
+            return False
+
+    def _build_command(self, config: PlaywrightConfig) -> list[str]:
+        """
+        Build command for stdio mode.
+
+        Args:
+            config: Playwright configuration
+
+        Returns:
+            List of command parts
+
+        Raises:
+            RuntimeError: If required executables are not found
+        """
+        # Check if we should use Windows Node.js
+        use_windows_node = should_use_windows_node()
+
+        if use_windows_node:
+            # WSL->Windows mode: use cmd.exe to execute Windows npx.cmd
+            logger.info("WSL->Windows mode enabled (PLAYWRIGHT_WSL_WINDOWS set)")
+            logger.info("Using Windows npx.cmd via cmd.exe")
+
+            cmd_exe = shutil.which("cmd.exe")
+            if not cmd_exe:
+                logger.error("cmd.exe not found in PATH")
+                raise RuntimeError(
+                    "cmd.exe not found in PATH. When PLAYWRIGHT_WSL_WINDOWS is set, "
+                    "cmd.exe must be available to execute Windows npx.cmd."
+                )
+
+            command = [cmd_exe, "/c", "npx.cmd"]
+            logger.info(f"Using command: {command}")
+        else:
+            # Standard mode: use npx from PATH
+            logger.info("Standard mode (PLAYWRIGHT_WSL_WINDOWS not set)")
+            logger.info("Using npx from PATH")
+
+            npx_path = shutil.which("npx")
+            if not npx_path:
+                logger.error("npx not found in PATH")
+                raise RuntimeError(
+                    "npx not found in PATH. Please ensure Node.js is installed."
+                )
+
+            command = [npx_path]
+            logger.info(f"Found npx at: {npx_path}")
+
+        # Add playwright package
+        command.append("@playwright/mcp@latest")
+
+        # NO --host, --port, or --allowed-hosts args (these are HTTP-only)
+        # Stdio mode uses stdin/stdout for communication
+
+        # Browser
+        if "browser" in config:
+            command.extend(["--browser", config["browser"]])
+
+        # Headless
+        if "headless" in config and config["headless"]:
+            command.append("--headless")
+
+        # No sandbox (required for running as root in Docker)
+        if "no_sandbox" in config and config["no_sandbox"]:
+            command.append("--no-sandbox")
+
+        # Device emulation
+        if "device" in config and config["device"]:
+            command.extend(["--device", config["device"]])
+
+        # Viewport size
+        if "viewport_size" in config and config["viewport_size"]:
+            command.extend(["--viewport-size", config["viewport_size"]])
+
+        # Isolated mode
+        if "isolated" in config and config["isolated"]:
+            command.append("--isolated")
+
+        # User data directory
+        if "user_data_dir" in config and config["user_data_dir"]:
+            command.extend(["--user-data-dir", config["user_data_dir"]])
+
+        # Storage state
+        if "storage_state" in config and config["storage_state"]:
+            command.extend(["--storage-state", config["storage_state"]])
+
+        # Network filtering
+        if "allowed_origins" in config and config["allowed_origins"]:
+            command.extend(["--allowed-origins", config["allowed_origins"]])
+
+        if "blocked_origins" in config and config["blocked_origins"]:
+            command.extend(["--blocked-origins", config["blocked_origins"]])
+
+        # Proxy server
+        if "proxy_server" in config and config["proxy_server"]:
+            command.extend(["--proxy-server", config["proxy_server"]])
+
+        # Capabilities
+        if "caps" in config and config["caps"]:
+            command.extend(["--caps", config["caps"]])
+
+        # Save session
+        if "save_session" in config and config["save_session"]:
+            command.append("--save-session")
+
+        # Save trace
+        if "save_trace" in config and config["save_trace"]:
+            command.append("--save-trace")
+
+        # Save video
+        if "save_video" in config and config["save_video"]:
+            command.extend(["--save-video", config["save_video"]])
+
+        # Output directory
+        if "output_dir" in config:
+            command.extend(["--output-dir", config["output_dir"]])
+
+        # Timeouts
+        if "timeout_action" in config:
+            command.extend(["--timeout-action", str(config["timeout_action"])])
+
+        if "timeout_navigation" in config:
+            command.extend(["--timeout-navigation", str(config["timeout_navigation"])])
+
+        # Image responses
+        if "image_responses" in config:
+            command.extend(["--image-responses", config["image_responses"]])
+
+        # Stealth settings
+        if "user_agent" in config and config["user_agent"]:
+            command.extend(["--user-agent", config["user_agent"]])
+
+        if "init_script" in config and config["init_script"]:
+            command.extend(["--init-script", config["init_script"]])
+
+        if "ignore_https_errors" in config and config["ignore_https_errors"]:
+            command.append("--ignore-https-errors")
+
+        # Extension support
+        if "extension" in config and config["extension"]:
+            command.append("--extension")
+
+        if "shared_browser_context" in config and config["shared_browser_context"]:
+            command.append("--shared-browser-context")
+
+        return command
+
+    def _build_env(self, config: PlaywrightConfig) -> dict[str, str]:
+        """
+        Build environment variables for subprocess.
+
+        Args:
+            config: Playwright configuration
+
+        Returns:
+            Environment dictionary
+        """
+        env = os.environ.copy()
+
+        # Pass through extension token if configured
+        if "extension_token" in config and config["extension_token"]:
+            env["PLAYWRIGHT_MCP_EXTENSION_TOKEN"] = config["extension_token"]
+            logger.info("Set PLAYWRIGHT_MCP_EXTENSION_TOKEN in subprocess environment")
+
+        return env
 
     async def _discover_tools(self) -> None:
         """
@@ -147,52 +337,13 @@ class PlaywrightProxyClient:
             logger.error(f"UPSTREAM_MCP ✗ Tool discovery failed: {e}")
             raise RuntimeError(f"Failed to discover tools: {e}") from e
 
-    async def _reconnect_client(self) -> None:
-        """
-        Reconnect the FastMCP client to the upstream playwright-mcp server.
-
-        This is called when a session termination error is detected to attempt
-        to recover the connection.
-        """
-        logger.info("UPSTREAM_MCP ⟳ Reconnecting client...")
-
-        # Disconnect existing client
-        if self._client:
-            try:
-                await self._client.__aexit__(None, None, None)
-            except Exception as e:
-                logger.warning(f"Error during client disconnect: {e}")
-            finally:
-                self._client = None
-
-        # Get the actual port from process manager
-        actual_port = self.process_manager.get_port()
-
-        # Get the playwright host from process manager (127.0.0.1 or WSL host IP)
-        playwright_host = self.process_manager._playwright_host
-
-        # Create new HTTP transport with discovered port and host
-        transport = StreamableHttpTransport(
-            url=f"http://{playwright_host}:{actual_port}/mcp"
-        )
-
-        # Create and connect new FastMCP client
-        self._client = Client(transport=transport)
-        await self._client.__aenter__()
-
-        # Re-discover tools to verify connection
-        await self._discover_tools()
-
-        logger.info("UPSTREAM_MCP ← Client reconnected successfully")
-
-    async def call_tool(self, tool_name: str, arguments: dict[str, Any], _retry_count: int = 0) -> Any:
+    async def call_tool(self, tool_name: str, arguments: dict[str, Any]) -> Any:
         """
         Call a tool on the upstream playwright-mcp server.
 
         Args:
             tool_name: Name of the tool to call
             arguments: Tool arguments
-            _retry_count: Internal retry counter (for session recovery)
 
         Returns:
             Tool result (potentially transformed by middleware)
@@ -205,14 +356,12 @@ class PlaywrightProxyClient:
 
         start_time = time.time()
 
-        # 90-second timeout for tool calls, this is in addition to PLAYWRIGHT_TIMEOUT_NAVIGATION and PLAYWRIGHT_TIMEOUT_ACTION
-        timeout_seconds = 90.0  
+        # 90-second timeout for tool calls
+        timeout_seconds = 90.0
         try:
             logger.info(f"UPSTREAM_MCP → Calling tool: {tool_name}")
 
             # Call tool via FastMCP client with 90-second timeout
-            # This prevents indefinite hangs when playwright-mcp gets stuck
-            # (e.g., browser_navigate_back in certain browser states)
             result = await asyncio.wait_for(
                 self._client.call_tool(tool_name, arguments),
                 timeout=timeout_seconds
@@ -241,56 +390,10 @@ class PlaywrightProxyClient:
                 f"UPSTREAM_MCP ✗ Tool call timeout: {tool_name} ({duration:.2f}ms) - "
                 f"Exceeded {timeout_seconds:.0f} second timeout"
             )
-
-            # Timeout likely indicates client disconnection - attempt reconnection
-            if _retry_count == 0:
-                logger.warning(
-                    f"UPSTREAM_MCP ⟳ Timeout detected, checking process health before reconnection"
-                )
-
-                # Check if the process is still healthy
-                is_healthy = await self.process_manager.is_healthy()
-
-                if is_healthy:
-                    # Process is healthy, just reconnect the client
-                    logger.info("Process is healthy, attempting client reconnection")
-                    try:
-                        await self._reconnect_client()
-                        # Retry the tool call once
-                        return await self.call_tool(tool_name, arguments, _retry_count=1)
-                    except Exception as reconnect_error:
-                        logger.error(f"UPSTREAM_MCP ✗ Reconnection failed: {reconnect_error}")
-                        raise RuntimeError(f"Tool call timeout and reconnection failed: {e}") from e
-                else:
-                    # Process is unhealthy, need to restart it
-                    logger.warning("Process is unhealthy, restart required (manual intervention)")
-                    raise RuntimeError(
-                        f"Tool call timeout after {timeout_seconds:.0f} seconds and process is unhealthy. "
-                        f"Manual restart may be required: {tool_name}"
-                    ) from e
-            else:
-                # Already retried once, don't retry again
-                raise RuntimeError(f"Tool call timeout after {timeout_seconds:.0f} seconds: {tool_name}") from e
+            raise RuntimeError(f"Tool call timeout after {timeout_seconds:.0f}s: {tool_name}") from e
 
         except Exception as e:
             duration = (time.time() - start_time) * 1000  # ms
-
-            # Check if this is a session termination or client disconnection error and retry once
-            error_str = str(e).lower()
-            if ("session terminated" in error_str or "session not found" in error_str or "client is not connected" in error_str) and _retry_count == 0:
-                logger.warning(
-                    f"UPSTREAM_MCP ⟳ Session terminated, attempting to reconnect and retry: {tool_name} ({duration:.2f}ms)"
-                )
-
-                # Attempt to reconnect the client
-                try:
-                    await self._reconnect_client()
-                    # Retry the tool call once
-                    return await self.call_tool(tool_name, arguments, _retry_count=1)
-                except Exception as reconnect_error:
-                    logger.error(f"UPSTREAM_MCP ✗ Reconnection failed: {reconnect_error}")
-                    raise RuntimeError(f"Session terminated and reconnection failed: {e}") from e
-
             logger.error(
                 f"UPSTREAM_MCP ✗ Tool call failed: {tool_name} ({duration:.2f}ms) - "
                 f"{type(e).__name__}: {e}"
@@ -326,12 +429,3 @@ class PlaywrightProxyClient:
             logger.error(f"Error transforming response for {tool_name}: {e}")
             # Return original response if transformation fails
             return response
-
-    def get_process(self) -> Any:
-        """
-        Get the underlying subprocess.
-
-        Returns:
-            The playwright-mcp subprocess
-        """
-        return self.process_manager.process

@@ -54,10 +54,6 @@ def setup_file_logging(
     logger = logging.getLogger()
     logger.info(f"Logging configured: file={log_path}, level={logging.getLevelName(level)}")
 
-    # Mute noisy third-party loggers
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("httpcore").setLevel(logging.WARNING)
-
     return logger
 
 

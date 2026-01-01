@@ -51,7 +51,7 @@ When you receive a blob:// URI from this proxy (e.g., `blob://1733577600-hash.pn
 
 - **Language**: Python 3.10+
 - **Framework**: FastMCP
-- **HTTP Client**: requests
+- **Transport**: MCP Stdio
 - **Package Manager**: uv
 - **Testing**: pytest, pytest-asyncio
 - **Linting**: ruff
@@ -66,10 +66,10 @@ src/playwright_proxy_mcp/
 ├── playwright/            # Playwright proxy components
 │   ├── __init__.py       # Package initialization
 │   ├── config.py         # Configuration loading (env vars)
-│   ├── process_manager.py # Subprocess lifecycle management
+│   ├── process_manager.py # Subprocess monitoring and logging
 │   ├── blob_manager.py   # Blob storage wrapper (mcp-mapped-resource-lib)
 │   ├── middleware.py     # Binary interception logic
-│   └── proxy_client.py   # Proxy client integration
+│   └── proxy_client.py   # Stdio transport integration
 ├── api/                   # MCP tools (currently empty)
 │   └── __init__.py
 └── utils/                 # Utility functions
@@ -1017,52 +1017,63 @@ Configure in `.env`:
 
 ### WSL -> Windows Host Connection
 
-#### PLAYWRIGHT_WSL_HOST_CONNECT
+#### PLAYWRIGHT_WSL_WINDOWS
 
-Enable WSL->Windows mode by specifying the Windows host IP address. This automatically configures the proxy to use Windows Node.js from WSL and connect to the Windows host.
+Enable WSL->Windows mode by setting this environment variable (any non-empty value). This automatically configures the proxy to use Windows Node.js from WSL.
 
-**Finding your Windows host IP from WSL**:
-```bash
-ip route show | grep -i default | awk '{ print $3}'
-# Common values: 172.22.96.1, 172.18.0.1, etc.
-```
+**When PLAYWRIGHT_WSL_WINDOWS is set**:
+1. **NPX Command**: Uses `cmd.exe /c npx.cmd` to execute Windows Node.js
+2. **Process Communication**: Via stdio pipes (stdin/stdout)
+3. **Node.js Instance**: Windows Node.js with access to Windows-installed browsers
 
-**When PLAYWRIGHT_WSL_HOST_CONNECT is set** (e.g., `"172.22.96.1"`):
-1. **NPX Command**: Automatically uses `cmd.exe /c npx.cmd` to execute Windows Node.js
-2. **Server Binding**: Upstream server binds to the specified Windows host IP
-3. **Client Connection**: Proxy connects to the specified Windows host IP
-4. **Health Checks**: All HTTP requests use the Windows host IP
-
-**When PLAYWRIGHT_WSL_HOST_CONNECT is NOT set** (standard mode):
+**When PLAYWRIGHT_WSL_WINDOWS is NOT set** (standard mode):
 1. **NPX Command**: Uses `npx` from PATH (native Linux/WSL Node.js)
-2. **Server Binding**: Upstream server binds to `127.0.0.1` (localhost only)
-3. **Client Connection**: Proxy connects to `127.0.0.1`
-4. **Health Checks**: All HTTP requests use localhost
+2. **Process Communication**: Via stdio pipes (stdin/stdout)
+3. **Node.js Instance**: Linux/WSL Node.js with access to Linux-installed browsers
 
 **Example configuration**:
 
 ```bash
 # WSL->Windows mode
-export PLAYWRIGHT_WSL_HOST_CONNECT=172.22.96.1
+export PLAYWRIGHT_WSL_WINDOWS=1
+
+# Or any non-empty value
+export PLAYWRIGHT_WSL_WINDOWS=true
 ```
 
 **Error handling**:
 
-If `PLAYWRIGHT_WSL_HOST_CONNECT` is set but `cmd.exe` is not found:
+If `PLAYWRIGHT_WSL_WINDOWS` is set but `cmd.exe` is not found:
 ```
-RuntimeError: cmd.exe not found in PATH. When PLAYWRIGHT_WSL_HOST_CONNECT is set,
+RuntimeError: cmd.exe not found in PATH. When PLAYWRIGHT_WSL_WINDOWS is set,
 cmd.exe must be available to execute Windows npx.cmd.
 ```
 
 **Why this design**:
 
-This single environment variable completely configures WSL->Windows interoperability:
-- No need to manually specify npx.cmd or cmd.exe paths
-- No need to configure binding addresses separately
-- No need to specify connection hosts separately
-- One variable = complete WSL mode activation
+This single environment variable enables Windows Node.js execution from WSL:
+- No need to manually specify host IPs or port numbers
+- Stdio transport works seamlessly across WSL/Windows boundary
+- Simpler configuration than the previous HTTP-based approach
+- No network binding or firewall concerns
 
-**Architecture note**: This approach solves the UNC path issue (Windows CMD complaining about WSL paths) by executing the Windows npx.cmd from its Windows directory, while allowing the WSL proxy to connect to it via the Windows host IP.
+**Architecture note**: With stdio transport, the subprocess communicates via pipes rather than HTTP, eliminating the need for host IP configuration and network binding.
+
+### Stdio Transport Benefits
+
+The proxy uses **stdio transport** instead of HTTP for communication with the upstream playwright-mcp server. This provides several advantages:
+
+1. **No Ping Timeout Issues**: Stdio transport uses independent read/write streams that can handle concurrent messages (pings + tool responses). Unlike HTTP transport, there is no 5-second ping timeout limitation that required operation chunking.
+
+2. **Simpler Architecture**: No port detection, no HTTP polling, no URL construction - just direct pipe communication.
+
+3. **Better Error Handling**: Process exit signals instead of HTTP connection errors.
+
+4. **Lower Latency**: Direct pipe communication has less overhead than HTTP.
+
+5. **No Port Conflicts**: Eliminates ephemeral port management.
+
+**Operation Duration**: With stdio transport, tool operations can run for unlimited duration without worrying about ping timeouts. The previous HTTP-based workaround that split long `browser_wait_for` calls into chunks is no longer needed.
 
 ## Troubleshooting
 

@@ -11,10 +11,6 @@ from typing import TypedDict
 
 from dotenv import load_dotenv
 
-# HTTP transport configuration
-PLAYWRIGHT_HTTP_HOST = "127.0.0.1"  # localhost only for security
-PLAYWRIGHT_HTTP_PORT = 0  # Ephemeral port (0 = OS assigns available port)
-
 # Load environment variables from .env file
 # Try multiple paths for .env file
 for env_path in [
@@ -98,6 +94,16 @@ def _get_int_env(key: str, default: int) -> int:
         return int(value)
     except ValueError:
         return default
+
+
+def should_use_windows_node() -> bool:
+    """
+    Check if we should use Windows Node.js from WSL.
+
+    Returns:
+        True if PLAYWRIGHT_WSL_WINDOWS is set (any non-empty value)
+    """
+    return bool(os.getenv("PLAYWRIGHT_WSL_WINDOWS"))
 
 
 def load_playwright_config() -> PlaywrightConfig:
