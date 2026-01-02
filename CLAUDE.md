@@ -732,6 +732,36 @@ if not isinstance(result, list):
     # Still paginate - offset=0 returns item, offset>0 returns empty
 ```
 
+### Pagination for browser_evaluate
+
+While `browser_navigate` and `browser_snapshot` support JMESPath filtering for ARIA snapshots, `browser_evaluate` uses simpler pagination for JavaScript evaluation results:
+
+**Key differences:**
+- **No JMESPath queries** - Use JavaScript code for filtering (e.g., `.filter()`, `.map()`)
+- **No flatten mode** - JavaScript returns data structures directly, not hierarchical trees
+- **No output format control** - Results are always JSON-serializable
+- **Same cache mechanism** - Uses `cache_key`, `offset`, `limit` parameters
+
+**Common use case:** Extracting large DOM query results (hundreds of links, table rows, form elements)
+
+```python
+# Extract all links with pagination (first 100)
+result = await browser_evaluate(
+    function="() => Array.from(document.links).map(a => ({href: a.href, text: a.innerText}))",
+    limit=100
+)
+
+# Next page
+result2 = await browser_evaluate(
+    function="() => Array.from(document.links).map(a => ({href: a.href, text: a.innerText}))",
+    cache_key=result["cache_key"],
+    offset=100,
+    limit=100
+)
+```
+
+See `browser_evaluate` docstring for complete documentation and examples.
+
 ## Bulk Command Execution
 
 The `browser_execute_bulk` tool allows sequential execution of multiple browser commands in a single MCP call, dramatically reducing round-trip overhead and improving performance for multi-step workflows.
@@ -1004,6 +1034,26 @@ Prompts are templates for common operations:
 def my_prompt() -> str:
     """Prompt description."""
     return "Prompt template text..."
+```
+
+### Paginate browser_evaluate results
+
+When JavaScript returns large arrays, use pagination:
+
+```python
+# First page
+result = await browser_evaluate(
+    function="() => Array.from(document.links).map(a => a.href)",
+    limit=50
+)
+
+# Next page
+result2 = await browser_evaluate(
+    function="() => Array.from(document.links).map(a => a.href)",
+    cache_key=result["cache_key"],
+    offset=50,
+    limit=50
+)
 ```
 
 ## Environment Variables

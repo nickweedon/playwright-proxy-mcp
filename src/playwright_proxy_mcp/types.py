@@ -66,6 +66,24 @@ class NavigationResponse(TypedDict, total=False):
     output_format: str
 
 
+class EvaluationResponse(TypedDict, total=False):
+    """
+    Response for browser_evaluate with pagination support.
+
+    Used when evaluating JavaScript in browser context with optional pagination
+    for array results.
+    """
+
+    success: bool
+    cache_key: str
+    total_items: int
+    offset: int
+    limit: int
+    has_more: bool
+    result: Any
+    error: str | None
+
+
 class BulkCommand(TypedDict, total=False):
     """Single command in a bulk execution."""
 

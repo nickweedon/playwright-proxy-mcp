@@ -11,7 +11,6 @@ This server:
 4. Returns blob:// URIs for large binary data (retrieval delegated to MCP Resource Server)
 """
 
-import logging
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -330,7 +329,12 @@ async def browser_navigate(
         - browser_take_screenshot: Visual screenshot instead of ARIA tree
     """
     from .types import NavigationResponse
-    from .utils.aria_processor import apply_jmespath_query, flatten_aria_tree, format_output, parse_aria_snapshot
+    from .utils.aria_processor import (
+        apply_jmespath_query,
+        flatten_aria_tree,
+        format_output,
+        parse_aria_snapshot,
+    )
 
     # Check if navigation_cache is initialized
     if navigation_cache is None:
@@ -959,25 +963,211 @@ async def browser_evaluate(
     function: str,
     element: str | None = None,
     ref: str | None = None,
+    cache_key: str | None = None,
+    offset: int = 0,
+    limit: int = 1000,
 ) -> dict[str, Any]:
     """
-    Evaluate JavaScript expression on page or element.
+    Evaluate JavaScript expression on page or element with optional pagination.
+
+    This tool executes arbitrary JavaScript in the browser context and returns the
+    result. When the result is an array or when pagination is needed, use the cache_key,
+    offset, and limit parameters to retrieve data in pages.
 
     Args:
-        function: () => { /* code */ } or (element) => { /* code */ } when element is provided
-        element: Human-readable element description used to obtain permission to interact with the element
-        ref: Exact target element reference from the page snapshot
+        function: JavaScript function to evaluate. Format depends on element parameter:
+            - Without element: () => { /* code */ } - runs in page context
+            - With element: (element) => { /* code */ } - runs with element as parameter
+
+        element: Human-readable element description for permission control.
+            When provided, JavaScript receives the element as first parameter.
+
+        ref: Exact target element reference from page snapshot (e.g., "e1", "e42").
+            Used with element parameter to identify specific DOM node.
+
+        cache_key: Reuse cached evaluation result from previous call. Default: None
+            When omitted on first call, a new cache entry is created and returned.
+            Use the returned cache_key in subsequent calls to paginate the same result.
+
+        offset: Starting index for pagination. Default: 0
+            Must be non-negative. Use with limit to retrieve specific page of results.
+
+        limit: Maximum items per page (1-10000). Default: 1000
+            When combined with offset, enables paginated retrieval of large arrays.
 
     Returns:
-        Evaluation result
-    """
-    args = {"function": function}
-    if element is not None:
-        args["element"] = element
-    if ref is not None:
-        args["ref"] = ref
+        When pagination is used (offset > 0, limit != 1000, or cache_key provided):
+            EvaluationResponse with paginated result:
+            {
+                "success": bool,
+                "cache_key": str,      # For continuation
+                "total_items": int,    # Total result count
+                "offset": int,         # Current page offset
+                "limit": int,          # Items per page
+                "has_more": bool,      # True if more items available
+                "result": list | Any,  # Paginated result (arrays or wrapped non-arrays)
+                "error": str | None
+            }
 
-    return await _call_playwright_tool("browser_evaluate", args)
+        When pagination is NOT used (backward compatibility):
+            Original dict format: {"result": <any JSON-serializable value>}
+
+    Pagination Workflow:
+        1. First call: browser_evaluate(function="...", limit=50)
+           Returns cache_key="nav_abc123", has_more=True, result=[... 50 items ...]
+
+        2. Next page: browser_evaluate(function="...", cache_key="nav_abc123", offset=50, limit=50)
+           Reuses cached result, returns next 50 items
+
+        3. Continue until has_more=False
+
+    Non-Array Results:
+        When JavaScript returns a non-array value (number, string, object), it is
+        automatically wrapped in a single-item array for pagination consistency:
+
+        JavaScript: () => ({name: "John"})
+        Response: {"result": [{"name": "John"}], "total_items": 1, ...}
+
+    Common Use Cases:
+        # Extract all links without pagination
+        browser_evaluate(function="() => Array.from(document.links).map(a => a.href)")
+
+        # Extract many links with pagination (first 100)
+        browser_evaluate(
+            function="() => Array.from(document.links).map(a => a.href)",
+            limit=100
+        )
+
+        # Continue pagination
+        browser_evaluate(
+            function="() => Array.from(document.links).map(a => a.href)",
+            cache_key="nav_abc123",
+            offset=100,
+            limit=100
+        )
+
+        # Evaluate on specific element
+        browser_evaluate(
+            function="(el) => el.innerText",
+            element="Submit button",
+            ref="e1"
+        )
+
+    Notes:
+        - Cache entries expire after 5 minutes of inactivity
+        - For arrays with 1000 or fewer items, omit pagination parameters for simplicity
+        - Non-array results are wrapped in single-item arrays when pagination is used
+
+    See Also:
+        - browser_navigate: Navigate and capture ARIA snapshot with pagination
+        - browser_snapshot: Capture ARIA snapshot with JMESPath filtering
+        - browser_run_code: Execute arbitrary page automation code
+    """
+    from .types import EvaluationResponse
+
+    # Check if pagination is requested
+    using_pagination = offset > 0 or limit != 1000 or cache_key is not None
+
+    # Backward compatibility: no pagination
+    if not using_pagination:
+        args = {"function": function}
+        if element is not None:
+            args["element"] = element
+        if ref is not None:
+            args["ref"] = ref
+        return await _call_playwright_tool("browser_evaluate", args)
+
+    # Pagination mode: validate parameters
+    if offset < 0:
+        return EvaluationResponse(
+            success=False,
+            error="offset must be non-negative",
+            cache_key="",
+            total_items=0,
+            offset=offset,
+            limit=limit,
+            has_more=False,
+            result=None,
+        )
+
+    if limit < 1 or limit > 10000:
+        return EvaluationResponse(
+            success=False,
+            error="limit must be between 1 and 10000",
+            cache_key="",
+            total_items=0,
+            offset=offset,
+            limit=limit,
+            has_more=False,
+            result=None,
+        )
+
+    # Check cache or evaluate fresh
+    result_data = None
+    key = ""
+
+    try:
+        if cache_key:
+            # User provided explicit cache_key (from previous response)
+            entry = navigation_cache.get(cache_key)
+            if entry:
+                result_data = entry.snapshot_json  # Reuse cached result
+                key = cache_key
+
+        # Evaluate if not cached
+        if result_data is None:
+            # Call upstream playwright-mcp
+            args = {"function": function}
+            if element is not None:
+                args["element"] = element
+            if ref is not None:
+                args["ref"] = ref
+
+            raw_result = await _call_playwright_tool("browser_evaluate", args)
+
+            # Extract result from {"result": ...} format
+            result_data = raw_result.get("result")
+
+            # Store in cache
+            key = navigation_cache.create("", result_data)
+
+    except Exception as e:
+        return EvaluationResponse(
+            success=False,
+            error=f"Evaluation failed: {e}",
+            cache_key="",
+            total_items=0,
+            offset=offset,
+            limit=limit,
+            has_more=False,
+            result=None,
+        )
+
+    # Wrap non-list results in array for consistent pagination
+    if isinstance(result_data, list):
+        total = len(result_data)
+        paginated_data = result_data[offset : offset + limit]
+        has_more = offset + limit < total
+    else:
+        # Single result - wrap in array
+        total = 1
+        if offset == 0:
+            paginated_data = [result_data]
+        else:
+            paginated_data = []  # offset beyond single result
+        has_more = False
+
+    # Return paginated response
+    return EvaluationResponse(
+        success=True,
+        cache_key=key,
+        total_items=total,
+        offset=offset,
+        limit=limit,
+        has_more=has_more,
+        result=paginated_data,
+        error=None,
+    )
 
 
 # =============================================================================
@@ -1130,7 +1320,12 @@ async def browser_snapshot(
         return await _call_playwright_tool("browser_snapshot", args)
 
     from .types import NavigationResponse
-    from .utils.aria_processor import apply_jmespath_query, flatten_aria_tree, format_output, parse_aria_snapshot
+    from .utils.aria_processor import (
+        apply_jmespath_query,
+        flatten_aria_tree,
+        format_output,
+        parse_aria_snapshot,
+    )
 
     # Check if navigation_cache is initialized
     if navigation_cache is None:
