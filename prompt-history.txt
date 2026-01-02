@@ -1,0 +1,40 @@
+This will be a new major and breaking change to this MCP proxy.
+The change is that it that will now, be capable of connecting to one or more 'browser pools', where a browser pool has 1 or 
+more upstream playwright MCP process instances.
+The idea of the pool is that all of the existing proxy MCP tools will have a new optional `browser_pool` argument that allows the 
+pool to be specified and additionally an optional 'browser_instance' argument that specifies the specific process name.
+The process name is numerical by default, starting from zero but is in fact a string that can be overriden
+with specific env var configuration.
+Also, since there are now multiple instances the whole env var system must be overhauled.
+The changes to env vars are as follows:
+1. The prefix will no longer be 'PLAYWRIGHT_', instead it will be 'PW_MCP_PROXY_'. This is to avoid confusion with 
+   the actual env vars used by the upstream playwright MCP server.
+2. A pool must always be defined for each env var and is sepearated by the prefix by a double underscore, example:
+   `PW_MCP_PROXY__SESSIONLESS_ISOLATED=true`
+   This will set the config value for 'isolated' on the 'SESSIONLESS' pool.
+3. A pool will define the configuration for all instances of the pool and the number of instances 
+   will be set by _INSTANCES. For example:
+   `PW_MCP_PROXY__SESSIONLESS_INSTANCES=10`
+4. All instances can be referred to by their ID which is automatically assigned, starting from 0. 
+   The instance name follows the pool name and is also separated a double underscore. For example:
+   `PW_MCP_PROXY__SESSIONLESS__0_BROWSER=msedge` will override the pool configuration for instance zero
+   setting the browser config to 'msedge'.
+5. Instances may have an alias set by the 'ALIAS' config, for example: 
+   `PW_MCP_PROXY__SESSIONLESS__0_ALIAS=main_browser`
+   This will not replace the '0' but will act as an additional alias that can be used to refer to the instance
+   via the `browser_instance` tool argument. The alias DOES not apply to env var configuration meaning that
+   even when an alies is applied, subsequent env vars must still use the numerical env var. For example:
+   `PW_MCP_PROXY__SESSIONLESS__0_HEADLESS=true` NOT `PW_MCP_PROXY__SESSIONLESS__main_browser_HEADLESS=true`.
+6. A pool may be marked as the 'default' pool, for example: `PW_MCP_PROXY__SESSIONLESS_IS_DEFAULT=true`.
+   This will mean that when the `browser_pool` tool argument is omitted, this default will be used.
+   There can only be one default defined and defining multiple should trigger a validation error.
+
+## Pool behavior
+
+Access to the processes of a pool will now be coordinated via a 'pool manager' which manages the 
+individual proxy clients (i.e. proxy_client.py).
+The pool manager will lease access to the caller allowing the upstream tool to be called.
+This access will use the PyPi leasedkeyq library (https://github.com/nickweedon/leasedkeyq) to facilitate
+access and leasing of the proxy_client via a blocking queue that also allows blocking dictionary access.
+Each pool will have its own leasedkeyq data structure to gate access to the underlying processes (`proxy_client`s).
+The `browser_pool` tool argument
