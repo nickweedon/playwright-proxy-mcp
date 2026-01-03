@@ -305,7 +305,7 @@ Configure in `.env`:
 - `API_BASE_URL`: Base URL for API requests
 - `API_TIMEOUT`: Request timeout in seconds
 - `DEBUG`: Enable debug logging
-- `PLAYWRIGHT_WSL_WINDOWS`: Enable WSL→Windows mode (any non-empty value)
+- `PW_MCP_PROXY_WSL_WINDOWS`: Enable WSL→Windows mode (any non-empty value)
 
 For complete configuration options, see [docs/CUSTOMIZATION.md](docs/CUSTOMIZATION.md).
 

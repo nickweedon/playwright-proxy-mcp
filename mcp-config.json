@@ -1,34 +1,24 @@
 {
   "mcpServers": {
-    "playwright-proxy-mcp-test": {
-      "command": "docker",
+    "playwright-proxy-mcp-server": {
       "args": [
         "run",
         "-i",
         "--rm",
-        "-e", "PLAYWRIGHT_BROWSER=chromium",
-        "-e", "PLAYWRIGHT_HEADLESS=true",
-        "-e", "PLAYWRIGHT_CAPS=vision,pdf",
-        "-e", "PLAYWRIGHT_OUTPUT_DIR=/app/playwright-output",
-        "-e", "PLAYWRIGHT_SAVE_SESSION=true",
-        "-e", "PLAYWRIGHT_SAVE_TRACE=false",
-        "-e", "PLAYWRIGHT_TIMEOUT_ACTION=5000",
-        "-e", "PLAYWRIGHT_TIMEOUT_NAVIGATION=60000",
-        "-e", "PLAYWRIGHT_IMAGE_RESPONSES=allow",
-        "-e", "PLAYWRIGHT_STEALTH_MODE=false",
-        "-e", "PLAYWRIGHT_IGNORE_HTTPS_ERRORS=false",
-        "-e", "PLAYWRIGHT_EXTENSION=false",
-        "-e", "BLOB_STORAGE_ROOT=/mnt/blob-storage",
-        "-e", "BLOB_MAX_SIZE_MB=500",
-        "-e", "BLOB_TTL_HOURS=24",
-        "-e", "BLOB_SIZE_THRESHOLD_KB=50",
-        "-e", "BLOB_CLEANUP_INTERVAL_MINUTES=60",
-        "-e", "PROXY_DEBUG=false",
+        "-e",
+        "PW_MCP_PROXY_BROWSER=chromium",
+        "-e",
+        "PW_MCP_PROXY_HEADLESS=true",
+        "-e",
+        "PW_MCP_PROXY__DEFAULT_INSTANCES=1",
+        "-e",
+        "PW_MCP_PROXY__DEFAULT_IS_DEFAULT=true",
         "playwright-proxy-mcp:latest",
         "uv",
         "run",
         "playwright-proxy-mcp"
-      ]
+      ],
+      "command": "docker"
     }
   }
 }

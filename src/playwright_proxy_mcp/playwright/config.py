@@ -144,9 +144,9 @@ def should_use_windows_node() -> bool:
     Check if we should use Windows Node.js from WSL.
 
     Returns:
-        True if PLAYWRIGHT_WSL_WINDOWS or PW_MCP_PROXY_WSL_WINDOWS is set
+        True if PW_MCP_PROXY_WSL_WINDOWS is set
     """
-    return bool(os.getenv("PLAYWRIGHT_WSL_WINDOWS") or os.getenv("PW_MCP_PROXY_WSL_WINDOWS"))
+    return bool(os.getenv("PW_MCP_PROXY_WSL_WINDOWS"))
 
 
 def _parse_global_config() -> PlaywrightConfig:

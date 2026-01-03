@@ -8,16 +8,16 @@ The proxy server can run in WSL while using Windows-installed Node.js and Playwr
 
 ## Configuration
 
-### PLAYWRIGHT_WSL_WINDOWS
+### PW_MCP_PROXY_WSL_WINDOWS
 
 Enable WSL→Windows mode by setting this environment variable (any non-empty value). This automatically configures the proxy to use Windows Node.js from WSL.
 
-**When PLAYWRIGHT_WSL_WINDOWS is set**:
+**When PW_MCP_PROXY_WSL_WINDOWS is set**:
 1. **NPX Command**: Uses `cmd.exe /c npx.cmd` to execute Windows Node.js
 2. **Process Communication**: Via stdio pipes (stdin/stdout)
 3. **Node.js Instance**: Windows Node.js with access to Windows-installed browsers
 
-**When PLAYWRIGHT_WSL_WINDOWS is NOT set** (standard mode):
+**When PW_MCP_PROXY_WSL_WINDOWS is NOT set** (standard mode):
 1. **NPX Command**: Uses `npx` from PATH (native Linux/WSL Node.js)
 2. **Process Communication**: Via stdio pipes (stdin/stdout)
 3. **Node.js Instance**: Linux/WSL Node.js with access to Linux-installed browsers
@@ -26,18 +26,18 @@ Enable WSL→Windows mode by setting this environment variable (any non-empty va
 
 ```bash
 # WSL→Windows mode
-export PLAYWRIGHT_WSL_WINDOWS=1
+export PW_MCP_PROXY_WSL_WINDOWS=1
 
 # Or any non-empty value
-export PLAYWRIGHT_WSL_WINDOWS=true
+export PW_MCP_PROXY_WSL_WINDOWS=true
 ```
 
 ## Error Handling
 
-If `PLAYWRIGHT_WSL_WINDOWS` is set but `cmd.exe` is not found:
+If `PW_MCP_PROXY_WSL_WINDOWS` is set but `cmd.exe` is not found:
 
 ```
-RuntimeError: cmd.exe not found in PATH. When PLAYWRIGHT_WSL_WINDOWS is set,
+RuntimeError: cmd.exe not found in PATH. When PW_MCP_PROXY_WSL_WINDOWS is set,
 cmd.exe must be available to execute Windows npx.cmd.
 ```
 

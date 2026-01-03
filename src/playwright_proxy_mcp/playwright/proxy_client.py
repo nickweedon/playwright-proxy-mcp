@@ -163,14 +163,14 @@ class PlaywrightProxyClient:
 
         if use_windows_node:
             # WSL->Windows mode: use cmd.exe to execute Windows npx.cmd
-            logger.info("WSL->Windows mode enabled (PLAYWRIGHT_WSL_WINDOWS set)")
+            logger.info("WSL->Windows mode enabled (PW_MCP_PROXY_WSL_WINDOWS set)")
             logger.info("Using Windows npx.cmd via cmd.exe")
 
             cmd_exe = shutil.which("cmd.exe")
             if not cmd_exe:
                 logger.error("cmd.exe not found in PATH")
                 raise RuntimeError(
-                    "cmd.exe not found in PATH. When PLAYWRIGHT_WSL_WINDOWS is set, "
+                    "cmd.exe not found in PATH. When PW_MCP_PROXY_WSL_WINDOWS is set, "
                     "cmd.exe must be available to execute Windows npx.cmd."
                 )
 
@@ -178,7 +178,7 @@ class PlaywrightProxyClient:
             logger.info(f"Using command: {command}")
         else:
             # Standard mode: use npx from PATH
-            logger.info("Standard mode (PLAYWRIGHT_WSL_WINDOWS not set)")
+            logger.info("Standard mode (PW_MCP_PROXY_WSL_WINDOWS not set)")
             logger.info("Using npx from PATH")
 
             npx_path = shutil.which("npx")
@@ -303,9 +303,11 @@ class PlaywrightProxyClient:
         env = os.environ.copy()
 
         # Pass through extension token if configured
+        # NOTE: PLAYWRIGHT_MCP_EXTENSION_TOKEN is passed to upstream playwright-mcp server
+        # This is one of the limited cases where PLAYWRIGHT_* prefix is correct (not PW_MCP_PROXY_*)
         if "extension_token" in config and config["extension_token"]:
             env["PLAYWRIGHT_MCP_EXTENSION_TOKEN"] = config["extension_token"]
-            logger.info("Set PLAYWRIGHT_MCP_EXTENSION_TOKEN in subprocess environment")
+            logger.info("Set PLAYWRIGHT_MCP_EXTENSION_TOKEN in subprocess environment (for upstream playwright-mcp)")
 
         return env
 
