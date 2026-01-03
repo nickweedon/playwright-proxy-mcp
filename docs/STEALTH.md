@@ -1,67 +1,75 @@
 # Stealth Mode Documentation
 
-This document explains the stealth/anti-detection capabilities of the Playwright MCP Proxy server.
+This document explains the anti-detection capabilities available in the Playwright MCP Proxy server.
 
 ## Overview
 
-The Playwright MCP Proxy includes built-in stealth capabilities to make browser automation less detectable by bot detection systems. This is particularly useful when scraping websites with anti-bot protections or when you need the browser to appear more like a real user.
+The Playwright MCP Proxy includes a bundled JavaScript initialization script (`stealth.js`) that can make browser automation less detectable by bot detection systems. This is useful when scraping websites with anti-bot protections or when you need the browser to appear more like a real user.
 
 ## How It Works
 
-The stealth implementation uses a JavaScript initialization script that runs **before** any page scripts execute. This script modifies browser properties and APIs that are commonly used to detect automation tools.
+The stealth implementation uses a JavaScript initialization script that runs **before** any page scripts execute. This script modifies browser properties and APIs commonly used to detect automation tools.
 
 ## Configuration
 
-### Quick Start
+### Enabling Stealth Mode
 
-To enable stealth mode, simply set the `PLAYWRIGHT_STEALTH_MODE` environment variable:
+To enable stealth mode, point the `INIT_SCRIPT` configuration to the bundled `stealth.js` file:
 
 ```bash
-PLAYWRIGHT_STEALTH_MODE=true
+# Global configuration (applies to all pools/instances)
+PW_MCP_PROXY_INIT_SCRIPT=/opt/src/mcp/playwright-proxy-mcp/src/playwright_proxy_mcp/playwright/stealth.js
+
+# Pool-specific
+PW_MCP_PROXY__MYPOOL_INIT_SCRIPT=/opt/src/mcp/playwright-proxy-mcp/src/playwright_proxy_mcp/playwright/stealth.js
+
+# Instance-specific
+PW_MCP_PROXY__MYPOOL__0_INIT_SCRIPT=/opt/src/mcp/playwright-proxy-mcp/src/playwright_proxy_mcp/playwright/stealth.js
 ```
 
-This will automatically inject the bundled `stealth.js` script into every page.
-
-### Environment Variables
+### Related Configuration
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `PLAYWRIGHT_STEALTH_MODE` | boolean | `false` | Enable built-in stealth mode |
-| `PLAYWRIGHT_USER_AGENT` | string | (browser default) | Custom user agent string |
-| `PLAYWRIGHT_INIT_SCRIPT` | string | - | Path to custom initialization script |
-| `PLAYWRIGHT_IGNORE_HTTPS_ERRORS` | boolean | `false` | Ignore HTTPS certificate errors |
+| `PW_MCP_PROXY_INIT_SCRIPT` | string | - | Path to initialization script (e.g., stealth.js) |
+| `PW_MCP_PROXY_USER_AGENT` | string | (browser default) | Custom user agent string |
+| `PW_MCP_PROXY_IGNORE_HTTPS_ERRORS` | boolean | `false` | Ignore HTTPS certificate errors |
 
 ### Example Configuration
 
 ```bash
-# Enable stealth mode
-PLAYWRIGHT_STEALTH_MODE=true
+# Enable stealth mode with bundled script
+PW_MCP_PROXY_INIT_SCRIPT=/opt/src/mcp/playwright-proxy-mcp/src/playwright_proxy_mcp/playwright/stealth.js
 
 # Use a realistic user agent
-PLAYWRIGHT_USER_AGENT=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36
+PW_MCP_PROXY_USER_AGENT=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36
 
-# Optional: Use headed mode to appear more real
-PLAYWRIGHT_HEADLESS=false
+# Optional: Use headed mode for more realistic behavior
+PW_MCP_PROXY_HEADLESS=false
 
-# Optional: Use a persistent user data directory for cookies/cache
-PLAYWRIGHT_USER_DATA_DIR=/app/browser-profile
+# Optional: Use persistent profile for cookies/cache
+PW_MCP_PROXY_USER_DATA_DIR=/app/browser-profile
+
+# Define pool
+PW_MCP_PROXY__DEFAULT_INSTANCES=1
+PW_MCP_PROXY__DEFAULT_IS_DEFAULT=true
 ```
 
 ## Anti-Detection Techniques
 
-The bundled `stealth.js` script implements the following anti-detection techniques:
+The bundled `stealth.js` script implements these anti-detection techniques:
 
 ### 1. WebDriver Property Removal
-- Removes `navigator.webdriver` property that identifies automation
+- Removes `navigator.webdriver` property
 - Sets it to `undefined` to match real browsers
 
 ### 2. Chrome Runtime Spoofing
 - Adds `window.chrome.runtime` object
-- Makes the browser appear to have Chrome extensions installed
+- Makes the browser appear to have Chrome extensions
 
 ### 3. Permissions API Override
-- Properly handles permissions queries
-- Returns realistic values for notification permissions
+- Handles permissions queries properly
+- Returns realistic notification permission values
 
 ### 4. Plugin Array Spoofing
 - Adds realistic plugin entries
@@ -73,15 +81,15 @@ The bundled `stealth.js` script implements the following anti-detection techniqu
 
 ### 6. WebGL Vendor Masking
 - Overrides WebGL vendor/renderer info
-- Hides headless browser indicators
 - Returns "Intel Inc." / "Intel Iris OpenGL Engine"
+- Hides headless browser indicators
 
 ### 7. User Agent Data (Client Hints)
 - Spoofs `navigator.userAgentData` for Chromium 90+
 - Provides realistic brand and platform information
 
 ### 8. Battery API Masking
-- Removes battery API not available in headless mode
+- Removes battery API (not available in headless mode)
 - Returns realistic charging state
 
 ### 9. Connection Info
@@ -121,7 +129,7 @@ The bundled `stealth.js` script implements the following anti-detection techniqu
 
 ## Limitations
 
-### What Stealth Mode Can Help With:
+### What Stealth Mode Helps With:
 ✅ Simple bot detection checks (webdriver property, plugins, etc.)
 ✅ Basic fingerprinting techniques
 ✅ User-agent based filtering
@@ -138,68 +146,72 @@ The bundled `stealth.js` script implements the following anti-detection techniqu
 
 ### Custom Initialization Scripts
 
-If you need custom anti-detection logic, create your own initialization script:
+Create your own custom anti-detection script:
 
 1. Create a JavaScript file (e.g., `custom-stealth.js`)
-2. Set the environment variable:
+2. Set the configuration:
    ```bash
-   PLAYWRIGHT_INIT_SCRIPT=/path/to/custom-stealth.js
+   PW_MCP_PROXY_INIT_SCRIPT=/path/to/custom-stealth.js
    ```
 
-Your custom script will run instead of the bundled `stealth.js`.
+Your custom script will run instead of or in addition to other initialization logic.
 
 ### Combining with Other Techniques
 
-For maximum stealth, combine the stealth mode with:
+For maximum stealth, combine the init script with:
 
 1. **Realistic User Agents**: Use recent, common user agent strings
-2. **Headed Mode**: Run with `PLAYWRIGHT_HEADLESS=false`
-3. **Persistent Profiles**: Use `PLAYWRIGHT_USER_DATA_DIR` to maintain cookies/cache
-4. **Proxy Rotation**: Use `PLAYWRIGHT_PROXY_SERVER` with rotating proxies
+2. **Headed Mode**: Run with `PW_MCP_PROXY_HEADLESS=false`
+3. **Persistent Profiles**: Use `PW_MCP_PROXY_USER_DATA_DIR` to maintain cookies/cache
+4. **Proxy Rotation**: Use `PW_MCP_PROXY_PROXY_SERVER` with rotating proxies
 5. **Realistic Viewport**: Use common resolutions like `1920x1080` or `1366x768`
-6. **Device Emulation**: Use `PLAYWRIGHT_DEVICE` to emulate real devices
+6. **Device Emulation**: Use `PW_MCP_PROXY_DEVICE` to emulate real devices
 
 ### Example: Maximum Stealth Configuration
 
 ```bash
-# Enable stealth mode
-PLAYWRIGHT_STEALTH_MODE=true
+# Enable stealth script
+PW_MCP_PROXY_INIT_SCRIPT=/opt/src/mcp/playwright-proxy-mcp/src/playwright_proxy_mcp/playwright/stealth.js
 
 # Use headed mode
-PLAYWRIGHT_HEADLESS=false
+PW_MCP_PROXY_HEADLESS=false
 
 # Realistic viewport
-PLAYWRIGHT_VIEWPORT_SIZE=1920x1080
+PW_MCP_PROXY_VIEWPORT_SIZE=1920x1080
 
 # Current Chrome user agent
-PLAYWRIGHT_USER_AGENT=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36
+PW_MCP_PROXY_USER_AGENT=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36
 
 # Persistent profile
-PLAYWRIGHT_USER_DATA_DIR=/app/browser-profile
-PLAYWRIGHT_ISOLATED=false
+PW_MCP_PROXY_USER_DATA_DIR=/app/browser-profile
+PW_MCP_PROXY_ISOLATED=false
 
 # Save session data
-PLAYWRIGHT_SAVE_SESSION=true
+PW_MCP_PROXY_SAVE_SESSION=true
+
+# Pool configuration
+PW_MCP_PROXY__DEFAULT_INSTANCES=1
+PW_MCP_PROXY__DEFAULT_IS_DEFAULT=true
 
 # Use proxy (if needed)
-# PLAYWRIGHT_PROXY_SERVER=http://proxy.example.com:8080
+# PW_MCP_PROXY_PROXY_SERVER=http://proxy.example.com:8080
 ```
 
 ## Testing Stealth Mode
 
-You can test your stealth configuration using various bot detection test sites:
+Test your stealth configuration using bot detection test sites:
 
-1. **Arh.antoinevastel.com/bots**: Tests for headless browser detection
+1. **arh.antoinevastel.com/bots**: Tests for headless browser detection
 2. **bot.sannysoft.com**: Comprehensive bot detection test
 3. **pixelscan.net**: Browser fingerprinting analysis
 4. **browserleaks.com**: Various browser fingerprint tests
 
-Example test script:
+Example test:
 
 ```python
 # Test stealth mode
 result = await browser_navigate(url="https://bot.sannysoft.com")
-screenshot = await browser_take_screenshot(fullPage=True)
+screenshot = await browser_screenshot(fullPage=True)
 # Check the screenshot for "WebDriver: false" and other passing tests
 ```
 
@@ -212,14 +224,17 @@ Check if the script file exists:
 ls -la /opt/src/mcp/playwright-proxy-mcp/src/playwright_proxy_mcp/playwright/stealth.js
 ```
 
+If using Docker, ensure the path is accessible inside the container.
+
 ### Still Being Detected
 
 Try these additional measures:
-1. Enable headed mode (`PLAYWRIGHT_HEADLESS=false`)
+1. Enable headed mode (`PW_MCP_PROXY_HEADLESS=false`)
 2. Add realistic delays between actions
 3. Use a residential proxy
 4. Update user agent to latest Chrome version
 5. Consider using a persistent browser profile
+6. Verify the stealth script is actually loading (check browser console)
 
 ### Custom Script Not Working
 
@@ -232,6 +247,11 @@ Ensure:
 Check logs for errors:
 ```bash
 tail -f /workspace/logs/mcp-server-playwright-proxy-mcp-docker.log
+```
+
+Or check server logs:
+```bash
+tail -f logs/playwright-proxy-mcp.log
 ```
 
 ## Best Practices
@@ -270,9 +290,8 @@ This implementation is inspired by:
 - [puppeteer-extra-plugin-stealth](https://github.com/berstend/puppeteer-extra/tree/master/packages/puppeteer-extra-plugin-stealth) (Node.js)
 - Various anti-detection research and techniques
 
-## Contributing
+## See Also
 
-If you discover new detection techniques or improvements to the stealth script, please:
-1. Create an issue describing the detection method
-2. Submit a PR with the fix/improvement
-3. Include test cases demonstrating the improvement
+- [CUSTOMIZATION.md](CUSTOMIZATION.md) - Full configuration options
+- [README](../README.md) - Basic usage and quick start
+- [TROUBLESHOOTING.md](TROUBLESHOOTING.md) - Common issues and solutions

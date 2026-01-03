@@ -4,35 +4,121 @@ This guide explains how to customize and extend the Playwright MCP Proxy.
 
 ## Configuration
 
-### Environment Variables
+All configuration is done through environment variables in the `.env` file using the `PW_MCP_PROXY_*` prefix.
 
-All configuration is done through environment variables in the `.env` file:
+### Environment Variable Hierarchy
 
-#### Playwright Configuration
+Configuration uses a three-level hierarchy with cascading precedence:
+
+1. **Global** (`PW_MCP_PROXY_<KEY>`) - Applies to all pools and instances
+2. **Pool** (`PW_MCP_PROXY__<POOL>_<KEY>`) - Applies to all instances in pool
+3. **Instance** (`PW_MCP_PROXY__<POOL>__<ID>_<KEY>`) - Applies to specific instance
+
+**Precedence**: Instance > Pool > Global
+
+### Basic Configuration
 
 ```bash
-# Browser selection
-PLAYWRIGHT_BROWSER=chromium  # chromium, firefox, webkit, msedge
+# Global defaults (apply to all pools/instances)
+PW_MCP_PROXY_BROWSER=chromium  # chromium, firefox, webkit, msedge
+PW_MCP_PROXY_HEADLESS=true
+PW_MCP_PROXY_CAPS=vision,pdf
+PW_MCP_PROXY_TIMEOUT_ACTION=15000
+PW_MCP_PROXY_TIMEOUT_NAVIGATION=30000
 
-# Run headless
-PLAYWRIGHT_HEADLESS=true
-
-# Enable capabilities
-PLAYWRIGHT_CAPS=vision,pdf  # vision, pdf, testing, tracing
-
-# Timeouts (milliseconds)
-PLAYWRIGHT_TIMEOUT_ACTION=5000
-PLAYWRIGHT_TIMEOUT_NAVIGATION=60000
-
-# Output directory
-PLAYWRIGHT_OUTPUT_DIR=/app/playwright-output
-
-# Session management
-PLAYWRIGHT_SAVE_SESSION=true
-PLAYWRIGHT_SAVE_TRACE=false
+# Define a pool (required)
+PW_MCP_PROXY__DEFAULT_INSTANCES=3
+PW_MCP_PROXY__DEFAULT_IS_DEFAULT=true
+PW_MCP_PROXY__DEFAULT_DESCRIPTION="General purpose browsing"
 ```
 
-#### Blob Storage Configuration
+### Pool-Specific Configuration
+
+Override global settings for a specific pool:
+
+```bash
+# Global: Chromium
+PW_MCP_PROXY_BROWSER=chromium
+
+# Pool: Use Firefox instead
+PW_MCP_PROXY__TESTING_INSTANCES=2
+PW_MCP_PROXY__TESTING_BROWSER=firefox
+PW_MCP_PROXY__TESTING_DESCRIPTION="Firefox testing pool"
+```
+
+### Instance-Specific Configuration
+
+Override pool settings for a specific instance:
+
+```bash
+# Pool defaults
+PW_MCP_PROXY__DEFAULT_INSTANCES=3
+PW_MCP_PROXY__DEFAULT_BROWSER=chromium
+PW_MCP_PROXY__DEFAULT_HEADLESS=true
+
+# Instance 0: Use Edge
+PW_MCP_PROXY__DEFAULT__0_BROWSER=msedge
+PW_MCP_PROXY__DEFAULT__0_ALIAS=edge_main
+
+# Instance 1: Debug mode (headed)
+PW_MCP_PROXY__DEFAULT__1_HEADLESS=false
+PW_MCP_PROXY__DEFAULT__1_ALIAS=debug_browser
+PW_MCP_PROXY__DEFAULT__1_TIMEOUT_ACTION=30000
+
+# Instance 2: Uses pool defaults
+```
+
+### Available Configuration Keys
+
+#### Browser Settings
+- `BROWSER`: Browser type (chromium, firefox, webkit, msedge)
+- `HEADLESS`: Run headless (true/false)
+- `NO_SANDBOX`: Disable sandbox (true/false)
+- `DEVICE`: Device to emulate
+- `VIEWPORT_SIZE`: Viewport dimensions (e.g., "1920x1080")
+
+#### Profile/Storage
+- `ISOLATED`: Run in isolated mode (true/false)
+- `USER_DATA_DIR`: Persistent user data directory
+- `STORAGE_STATE`: Path to storage state file
+
+#### Network
+- `ALLOWED_ORIGINS`: Comma-separated allowed origins
+- `BLOCKED_ORIGINS`: Comma-separated blocked origins
+- `PROXY_SERVER`: Proxy server URL
+
+#### Capabilities
+- `CAPS`: Comma-separated capabilities (vision,pdf,testing,tracing)
+
+#### Output
+- `SAVE_SESSION`: Save session data (true/false)
+- `SAVE_TRACE`: Save execution traces (true/false)
+- `SAVE_VIDEO`: Video recording mode
+- `OUTPUT_DIR`: Output directory path
+
+#### Timeouts (milliseconds)
+- `TIMEOUT_ACTION`: Action timeout (default: 15000)
+- `TIMEOUT_NAVIGATION`: Navigation timeout (default: 30000)
+
+#### Images
+- `IMAGE_RESPONSES`: Image handling (allow/block)
+
+#### Stealth
+- `STEALTH_MODE`: Enable anti-detection (true/false)
+- `USER_AGENT`: Custom user agent string
+- `INIT_SCRIPT`: Path to custom initialization script
+- `IGNORE_HTTPS_ERRORS`: Ignore HTTPS errors (true/false)
+
+#### Extension Support
+- `EXTENSION`: Enable extension support (true/false)
+- `EXTENSION_TOKEN`: Extension authentication token
+
+#### WSL→Windows
+- `WSL_WINDOWS`: Use Windows Node.js from WSL (true/false)
+
+### Blob Storage Configuration
+
+Configure blob storage behavior:
 
 ```bash
 # Storage location
@@ -47,7 +133,7 @@ BLOB_TTL_HOURS=24
 BLOB_CLEANUP_INTERVAL_MINUTES=60
 ```
 
-See [.env.example](../.env.example) for all available options.
+See [.env.example.single-pool](../.env.example.single-pool), [.env.example.multi-pool](../.env.example.multi-pool), or [.env.example.instance-overrides](../.env.example.instance-overrides) for complete examples.
 
 ## Adding Custom Tools
 
@@ -119,7 +205,7 @@ async def intercept_response(self, tool_name: str, response: Any) -> Any:
     return await super().intercept_response(tool_name, response)
 ```
 
-## Extending Playwright Configuration
+## Extending Configuration
 
 ### Adding New Configuration Options
 
@@ -278,8 +364,8 @@ docker compose up -d
 Check loaded configuration:
 
 ```bash
-# Check global configuration
-uv run python -c "from playwright_proxy_mcp.playwright.config import load_pool_manager_config, load_blob_config; import json; import os; os.environ['PW_MCP_PROXY__DEFAULT_INSTANCES']='1'; os.environ['PW_MCP_PROXY__DEFAULT_IS_DEFAULT']='true'; config = load_pool_manager_config(); print(json.dumps(config['global_config'], indent=2))"
+# Check pool configuration
+uv run python -c "from playwright_proxy_mcp.playwright.config import load_pool_manager_config; import json; import os; os.environ['PW_MCP_PROXY__DEFAULT_INSTANCES']='1'; os.environ['PW_MCP_PROXY__DEFAULT_IS_DEFAULT']='true'; config = load_pool_manager_config(); print(json.dumps(config['global_config'], indent=2))"
 
 # Check blob configuration
 uv run python -c "from playwright_proxy_mcp.playwright.config import load_blob_config; import json; print(json.dumps(load_blob_config(), indent=2))"
@@ -295,8 +381,9 @@ uv run python -c "from playwright_proxy_mcp.playwright.config import load_blob_c
 6. **Use environment variables**: Keep configuration flexible
 7. **Monitor resource usage**: Browser automation can be memory-intensive
 
-## Getting Help
+## See Also
 
-- Check the [README](../README.md) for basic usage
-- Review [CLAUDE.md](../CLAUDE.md) for development guidelines
-- Open an issue on GitHub for bugs or feature requests
+- [README](../README.md) - Basic usage and quick start
+- [CLAUDE.md](../CLAUDE.md) - Development guidelines and patterns
+- [BROWSER_POOLS_SPEC.md](BROWSER_POOLS_SPEC.md) - Pool configuration reference
+- [TROUBLESHOOTING.md](TROUBLESHOOTING.md) - Common issues and solutions

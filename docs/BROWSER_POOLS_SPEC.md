@@ -1,8 +1,25 @@
 # Browser Pools Specification
 
 **Version**: 2.0.0
-**Status**: Draft
+**Status**: Partially Implemented
 **Breaking Change**: Yes
+
+## Implementation Status
+
+✅ **Implemented:**
+- Pool manager with `LeasedKeyQueue` for instance leasing
+- Hierarchical configuration (Global → Pool → Instance)
+- Pool configuration parser and validation
+- `browser_pool_status` tool for monitoring
+- Health check infrastructure
+- RAII pattern via async context managers
+
+❌ **Not Yet Implemented:**
+- `browser_pool` and `browser_instance` parameters on browser tools
+- Tools currently use default pool only
+- See [Implementation Checklist](#implementation-checklist) for details
+
+**Current Behavior:** All browser tools use the default pool with automatic FIFO instance selection. Explicit pool/instance selection is not yet available in tool signatures.
 
 ---
 
@@ -145,22 +162,27 @@ PW_MCP_PROXY__<POOL_NAME>__<INSTANCE_ID>_<CONFIG_KEY>=<value>
 
 ## Tool Interface
 
-### New Tool Arguments
+### Current Implementation
 
-All existing browser tools (`browser_navigate`, `browser_click`, `browser_snapshot`, etc.) gain two new **optional** arguments:
+**Status:** Browser pool/instance selection is NOT yet exposed in tool signatures.
 
-### New Tools
+**Current Behavior:** All browser tools automatically use:
+- The default pool (configured with `IS_DEFAULT=true`)
+- FIFO instance selection (first available instance from default pool)
 
-- **`browser_pool_status`**: Monitor pool health, instance status, and lease activity (see [Health Monitoring](#health-monitoring) section)
+### Planned Tool Arguments (Not Yet Implemented)
 
-#### `browser_pool` (string, optional)
+The following parameters are planned but NOT yet available on browser tools:
+
+#### `browser_pool` (string, optional) - PLANNED
 
 - **Description**: Name of the pool to use
 - **Default**: The pool with `IS_DEFAULT=true`
 - **Validation**: Must reference an existing pool
 - **Example**: `"SESSIONLESS"`, `"ISOLATED"`, `"TESTING"`
+- **Status**: ❌ Not implemented
 
-#### `browser_instance` (string, optional)
+#### `browser_instance` (string, optional) - PLANNED
 
 - **Description**: Specific instance within the pool
 - **Default**: None (pool manager selects first available via FIFO)
@@ -168,22 +190,26 @@ All existing browser tools (`browser_navigate`, `browser_click`, `browser_snapsh
   - Numeric ID: `"0"`, `"1"`, `"2"`, etc.
   - Alias: Any string set via `PW_MCP_PROXY__<POOL>__<ID>_ALIAS`
 - **Behavior**: Blocks until specified instance is available
+- **Status**: ❌ Not implemented
 
-### Example Usage
+### Available Tools
+
+- **`browser_pool_status`**: ✅ Implemented - Monitor pool health, instance status, and lease activity (see [Health Monitoring](#health-monitoring) section)
+
+### Current Usage
 
 ```python
-# Use default pool, any available instance
+# ✅ CURRENT: Uses default pool, FIFO instance selection
 await browser_navigate(url="https://example.com")
 
-# Use specific pool, any available instance
-await browser_navigate(url="https://example.com", browser_pool="ISOLATED")
+# ❌ PLANNED (not yet available): Use specific pool
+# await browser_navigate(url="https://example.com", browser_pool="ISOLATED")
 
-# Use specific pool and instance (by ID)
-await browser_navigate(url="https://example.com", browser_pool="DEFAULT", browser_instance="0")
-
-# Use specific pool and instance (by alias)
-await browser_navigate(url="https://example.com", browser_pool="DEFAULT", browser_instance="main_browser")
+# ❌ PLANNED (not yet available): Use specific instance
+# await browser_navigate(url="https://example.com", browser_pool="DEFAULT", browser_instance="0")
 ```
+
+**Workaround:** To use multiple pools or specific instances, you currently need to deploy separate proxy instances with different configurations.
 
 ### Special Case: `browser_execute_bulk`
 
