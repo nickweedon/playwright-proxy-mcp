@@ -2,8 +2,6 @@
 
 import json
 
-import pytest
-
 from aria_snapshot_parser import AriaSnapshotSerializer, parse
 
 

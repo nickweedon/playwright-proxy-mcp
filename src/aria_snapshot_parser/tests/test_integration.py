@@ -1,6 +1,5 @@
 """Integration tests for aria-snapshot-parser."""
 
-import pytest
 
 from aria_snapshot_parser import AriaSnapshotSerializer, parse
 

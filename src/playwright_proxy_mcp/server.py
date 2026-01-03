@@ -11,6 +11,7 @@ This server:
 4. Returns blob:// URIs for large binary data (retrieval delegated to MCP Resource Server)
 """
 
+import sys
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -31,7 +32,6 @@ setup_file_logging(log_file="logs/playwright-proxy-mcp.log")
 logger = get_logger(__name__)
 
 # Log Python interpreter information at startup
-import sys
 
 logger.info(f"Python interpreter: {sys.executable}")
 logger.info(f"Python version: {sys.version}")

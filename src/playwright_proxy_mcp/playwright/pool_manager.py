@@ -11,13 +11,17 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import AsyncIterator
+from typing import TYPE_CHECKING, AsyncIterator
 
 from leasedkeyq import LeasedKeyQueue
 
 from .config import InstanceConfig, PoolConfig, PoolManagerConfig
 from .process_manager import PlaywrightProcessManager
 from .proxy_client import PlaywrightProxyClient
+
+if TYPE_CHECKING:
+    from .blob_manager import BlobManager
+    from .middleware import BinaryInterceptMiddleware
 
 logger = logging.getLogger(__name__)
 

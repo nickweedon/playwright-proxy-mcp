@@ -4,7 +4,6 @@ ARIA Snapshot Processor
 Processes ARIA snapshots: parsing, querying, and formatting.
 """
 
-import json
 from typing import Any
 
 import mistune

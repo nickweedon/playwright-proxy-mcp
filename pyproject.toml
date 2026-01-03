@@ -67,10 +67,17 @@ packages = ["src/playwright_proxy_mcp"]
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+exclude = [
+    "*/generated/*",
+]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "W"]
+select = ["E", "F", "I", "W", "N"]
 ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"**/aria_snapshot_parser/parser.py" = ["N802", "N803"]
+"**/server.py" = ["N803"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

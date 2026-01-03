@@ -1,19 +1,19 @@
 """ARIA Snapshot parser combining YAML and ANTLR."""
 
+# ruff: noqa: N802, N803
+
 from typing import Any
 
 from antlr4 import CommonTokenStream, InputStream
 from antlr4.error.ErrorListener import ErrorListener
 from ruamel.yaml import YAML
 
-from .exceptions import ParseError as ParseErrorException
 from .exceptions import ValidationError
 from .generated.AriaKeyLexer import AriaKeyLexer
 from .generated.AriaKeyParser import AriaKeyParser
 from .generated.AriaKeyVisitor import AriaKeyVisitor
 from .types import AriaTemplateNode, AriaTextValue, ParseError
 from .utils import (
-    normalize_text,
     parse_boolean,
     parse_mixed_boolean,
     unescape_string,

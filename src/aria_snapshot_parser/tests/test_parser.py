@@ -1,9 +1,8 @@
 """Tests for ARIA snapshot parser."""
 
-import pytest
 
-from aria_snapshot_parser import AriaSnapshotParser, parse
-from aria_snapshot_parser.types import AriaTemplateNode, AriaTextValue
+from aria_snapshot_parser import parse
+from aria_snapshot_parser.types import AriaTemplateNode
 
 
 class TestAriaSnapshotParser:
