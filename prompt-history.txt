@@ -37,4 +37,7 @@ The pool manager will lease access to the caller allowing the upstream tool to b
 This access will use the PyPi leasedkeyq library (https://github.com/nickweedon/leasedkeyq) to facilitate
 access and leasing of the proxy_client via a blocking queue that also allows blocking dictionary access.
 Each pool will have its own leasedkeyq data structure to gate access to the underlying processes (`proxy_client`s).
-The `browser_pool` tool argument
+The `browser_pool` tool argument can be used to select the pool to retrieve the proxy_client from.
+The 'browser_execute_bulk' has special behavior as it will use the same proxy_client AKA browser instance for
+the entire execution. This approach still works with paging since subsequent paging calls will retrieve data
+from the cache which is agnostic to the underlying processes/pools.

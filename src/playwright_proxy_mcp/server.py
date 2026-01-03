@@ -20,10 +20,9 @@ from .middleware import MCPLoggingMiddleware
 from .playwright import (
     BinaryInterceptionMiddleware,
     PlaywrightBlobManager,
-    PlaywrightProcessManager,
-    PlaywrightProxyClient,
+    PoolManager,
     load_blob_config,
-    load_playwright_config,
+    load_pool_manager_config,
 )
 from .utils.logging_config import get_logger, log_tool_result, setup_file_logging
 
@@ -38,51 +37,44 @@ logger.info(f"Python interpreter: {sys.executable}")
 logger.info(f"Python version: {sys.version}")
 
 # Global components
-playwright_config = None
+pool_manager_config = None
 blob_config = None
 blob_manager = None
-process_manager = None
 middleware = None
-proxy_client = None
+pool_manager = None
 navigation_cache = None
 
 
 @asynccontextmanager
 async def lifespan_context(server):
     """Lifespan context manager for startup and shutdown"""
-    global playwright_config, blob_config, blob_manager, process_manager
-    global middleware, proxy_client, navigation_cache
+    global pool_manager_config, blob_config, blob_manager
+    global middleware, pool_manager, navigation_cache
 
-    logger.info("Starting Playwright MCP Proxy...")
+    logger.info("Starting Playwright MCP Proxy (v2.0.0 - Browser Pools)...")
 
     try:
         # Load configuration
-        playwright_config = load_playwright_config()
+        pool_manager_config = load_pool_manager_config()
         blob_config = load_blob_config()
 
-        logger.info(f"Playwright browser: {playwright_config.get('browser', 'chromium')}")
         logger.info(f"Blob storage: {blob_config['storage_root']}")
         logger.info(f"Blob threshold: {blob_config['size_threshold_kb']}KB")
 
         # Initialize blob storage
         blob_manager = PlaywrightBlobManager(blob_config)
 
-        # Initialize process manager
-        process_manager = PlaywrightProcessManager()
-
         # Initialize middleware
         middleware = BinaryInterceptionMiddleware(blob_manager, blob_config["size_threshold_kb"])
 
-        # Initialize proxy client
-        proxy_client = PlaywrightProxyClient(process_manager, middleware)
-
-        # Initialize navigation cache
+        # Initialize navigation cache (global, shared across all pools)
         from .utils.navigation_cache import NavigationCache
 
         navigation_cache = NavigationCache(default_ttl=300)
 
-        # Start playwright-mcp subprocess
-        await proxy_client.start(playwright_config)
+        # Initialize pool manager
+        pool_manager = PoolManager(pool_manager_config, blob_manager, middleware)
+        await pool_manager.initialize()
 
         # Start blob cleanup task
         await blob_manager.start_cleanup_task()
@@ -93,7 +85,7 @@ async def lifespan_context(server):
         yield
 
     except Exception as e:
-        logger.error(f"Failed to start Playwright MCP Proxy: {e}")
+        logger.error(f"Failed to start Playwright MCP Proxy: {e}", exc_info=True)
         raise
 
     finally:
@@ -105,14 +97,15 @@ async def lifespan_context(server):
             if blob_manager:
                 await blob_manager.stop_cleanup_task()
 
-            # Stop proxy client and subprocess
-            if proxy_client:
-                await proxy_client.stop()
+            # Stop pool manager (stops all instances)
+            if pool_manager:
+                for pool in pool_manager.pools.values():
+                    await pool.stop()
 
             logger.info("Playwright MCP Proxy shut down successfully")
 
         except Exception as e:
-            logger.error(f"Error during shutdown: {e}")
+            logger.error(f"Error during shutdown: {e}", exc_info=True)
 
 
 # Initialize the MCP server
@@ -152,26 +145,34 @@ mcp.add_middleware(
 # requires a running server. We'll communicate directly with the subprocess.
 
 
-async def _call_playwright_tool(tool_name: str, arguments: dict[str, Any]) -> Any:
+async def _call_playwright_tool(
+    tool_name: str,
+    arguments: dict[str, Any],
+    browser_pool: str | None = None,
+    browser_instance: str | None = None,
+) -> Any:
     """
-    Call a playwright-mcp tool through the subprocess.
+    Call a playwright-mcp tool through the pool manager.
 
     Args:
-        tool_name: Name of the tool (with or without playwright_ prefix)
+        tool_name: Name of the tool (with browser_ prefix)
         arguments: Tool arguments
+        browser_pool: Optional pool name (defaults to default pool)
+        browser_instance: Optional instance ID or alias (defaults to FIFO selection)
 
     Returns:
         Tool result (potentially transformed by middleware)
     """
-    if not proxy_client or not await proxy_client.is_healthy():
-        raise RuntimeError("Playwright subprocess not running")
+    if not pool_manager:
+        raise RuntimeError("Pool manager not initialized")
 
-    # All tools now use the browser_ prefix directly matching playwright-mcp
-    # No name mapping needed as we use the exact upstream tool names
-    actual_tool_name = tool_name
+    # Get the appropriate pool
+    pool = pool_manager.get_pool(browser_pool)
 
-    # Call tool through proxy client
-    return await proxy_client.call_tool(actual_tool_name, arguments)
+    # Lease an instance from the pool (RAII pattern via context manager)
+    async with pool.lease_instance(browser_instance) as proxy_client:
+        # Call tool through the leased proxy client
+        return await proxy_client.call_tool(tool_name, arguments)
 
 
 # =============================================================================
@@ -1009,8 +1010,8 @@ async def browser_evaluate(
                 "error": str | None
             }
 
-        When pagination is NOT used (backward compatibility):
-            Original dict format: {"result": <any JSON-serializable value>}
+        When pagination is NOT used:
+            Simple dict format: {"result": <any JSON-serializable value>}
 
     Pagination Workflow:
         1. First call: browser_evaluate(function="...", limit=50)
@@ -2110,6 +2111,91 @@ async def browser_install() -> dict[str, Any]:
 
 
 # =============================================================================
+# POOL MANAGEMENT TOOLS
+# =============================================================================
+
+
+@mcp.tool()
+@log_tool_result(logger)
+async def browser_pool_status(pool_name: str | None = None) -> dict[str, Any]:
+    """
+    Get status of browser pools including health, lease activity, and instance details.
+
+    This tool provides real-time monitoring of all browser pools or a specific pool,
+    showing instance health, availability, and lease status.
+
+    Args:
+        pool_name: Name of specific pool to query (e.g., "ISOLATED", "SESSIONLESS").
+                  If None, returns status for all pools.
+
+    Returns:
+        Dictionary with pool status information:
+        {
+            "pools": [
+                {
+                    "name": str,              # Pool name
+                    "description": str,       # Pool description
+                    "is_default": bool,       # Whether this is the default pool
+                    "total_instances": int,   # Total instances in pool
+                    "healthy_instances": int, # Instances passing health checks
+                    "failed_instances": int,  # Instances that failed health checks
+                    "leased_instances": int,  # Currently leased instances
+                    "available_instances": int, # Healthy and unleased instances
+                    "instances": [
+                        {
+                            "id": str,          # Instance ID (numeric)
+                            "alias": str|None,  # Instance alias (if configured)
+                            "healthy": bool,    # Health check status
+                            "leased": bool,     # Whether currently leased
+                            "lease_duration_ms": int|None,  # Time leased (if leased)
+                            "browser": str,     # Browser type
+                            "headless": bool,   # Headless mode
+                            "process_id": int|None,  # OS process ID
+                            "health_check": {
+                                "last_check": str,    # ISO timestamp
+                                "responsive": bool,   # Responded to ping
+                                "error": str|None     # Error if unhealthy
+                            }
+                        }
+                    ]
+                }
+            ],
+            "summary": {
+                "total_pools": int,
+                "total_instances": int,
+                "healthy_instances": int,
+                "failed_instances": int,
+                "leased_instances": int,
+                "available_instances": int
+            }
+        }
+
+    Examples:
+        # Get status of all pools
+        status = await browser_pool_status()
+        for pool in status["pools"]:
+            print(f"{pool['name']}: {pool['available_instances']}/{pool['total_instances']} available")
+
+        # Get status of specific pool
+        status = await browser_pool_status(pool_name="ISOLATED")
+        pool = status["pools"][0]
+        if pool["available_instances"] == 0:
+            print("Warning: ISOLATED pool has no available instances")
+
+        # Monitor long-running leases
+        status = await browser_pool_status()
+        for pool in status["pools"]:
+            for instance in pool["instances"]:
+                if instance["leased"] and instance["lease_duration_ms"] > 60000:
+                    print(f"Instance {instance['id']} in {pool['name']} leased for {instance['lease_duration_ms']}ms")
+    """
+    if not pool_manager:
+        raise RuntimeError("Pool manager not initialized")
+
+    return await pool_manager.get_status(pool_name)
+
+
+# =============================================================================
 # RESOURCES
 # =============================================================================
 
@@ -2117,10 +2203,13 @@ async def browser_install() -> dict[str, Any]:
 @mcp.resource("playwright-proxy://status")
 async def get_proxy_status() -> str:
     """Get the current proxy status"""
-    if proxy_client and await proxy_client.is_healthy():
-        return "Playwright MCP Proxy is running"
+    if pool_manager:
+        status = await pool_manager.get_status()
+        total = status["summary"]["total_instances"]
+        healthy = status["summary"]["healthy_instances"]
+        return f"Playwright MCP Proxy is running ({healthy}/{total} instances healthy)"
     else:
-        return "Playwright MCP Proxy is not running"
+        return "Playwright MCP Proxy is not initialized"
 
 
 # =============================================================================

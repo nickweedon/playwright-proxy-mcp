@@ -23,14 +23,14 @@ def mock_navigation_cache():
 
 
 @pytest.mark.asyncio
-async def test_browser_evaluate_array_pagination(mock_proxy_client, mock_navigation_cache):
+async def test_browser_evaluate_array_pagination(mock_pool_manager, mock_proxy_client, mock_navigation_cache):
     """Test browser_evaluate with array result pagination."""
     from playwright_proxy_mcp import server
 
     # Mock: JavaScript returns array of 100 numbers
     mock_proxy_client.call_tool.return_value = {"result": list(range(100))}
 
-    with patch.object(server, "proxy_client", mock_proxy_client), patch.object(
+    with patch.object(server, "pool_manager", mock_pool_manager), patch.object(
         server, "navigation_cache", mock_navigation_cache
     ):
         # First call with limit=20
@@ -67,14 +67,14 @@ async def test_browser_evaluate_array_pagination(mock_proxy_client, mock_navigat
 
 
 @pytest.mark.asyncio
-async def test_browser_evaluate_non_array_wrapping(mock_proxy_client, mock_navigation_cache):
+async def test_browser_evaluate_non_array_wrapping(mock_pool_manager, mock_proxy_client, mock_navigation_cache):
     """Test browser_evaluate wraps non-array results."""
     from playwright_proxy_mcp import server
 
     # Mock: JavaScript returns single object
     mock_proxy_client.call_tool.return_value = {"result": {"name": "John", "age": 30}}
 
-    with patch.object(server, "proxy_client", mock_proxy_client), patch.object(
+    with patch.object(server, "pool_manager", mock_pool_manager), patch.object(
         server, "navigation_cache", mock_navigation_cache
     ):
         result = await server.browser_evaluate.fn(
@@ -88,13 +88,13 @@ async def test_browser_evaluate_non_array_wrapping(mock_proxy_client, mock_navig
 
 
 @pytest.mark.asyncio
-async def test_browser_evaluate_backward_compatibility(mock_proxy_client):
+async def test_browser_evaluate_backward_compatibility(mock_pool_manager, mock_proxy_client):
     """Test browser_evaluate without pagination returns original format."""
     from playwright_proxy_mcp import server
 
     mock_proxy_client.call_tool.return_value = {"result": 42}
 
-    with patch.object(server, "proxy_client", mock_proxy_client):
+    with patch.object(server, "pool_manager", mock_pool_manager):
         # No pagination parameters
         result = await server.browser_evaluate.fn(function="() => 42")
 
@@ -105,13 +105,13 @@ async def test_browser_evaluate_backward_compatibility(mock_proxy_client):
 
 
 @pytest.mark.asyncio
-async def test_browser_evaluate_offset_beyond_bounds(mock_proxy_client, mock_navigation_cache):
+async def test_browser_evaluate_offset_beyond_bounds(mock_pool_manager, mock_proxy_client, mock_navigation_cache):
     """Test browser_evaluate with offset beyond array length."""
     from playwright_proxy_mcp import server
 
     mock_proxy_client.call_tool.return_value = {"result": [1, 2, 3]}
 
-    with patch.object(server, "proxy_client", mock_proxy_client), patch.object(
+    with patch.object(server, "pool_manager", mock_pool_manager), patch.object(
         server, "navigation_cache", mock_navigation_cache
     ):
         result = await server.browser_evaluate.fn(
@@ -165,13 +165,13 @@ async def test_browser_evaluate_validation_invalid_limit_low(mock_navigation_cac
 
 
 @pytest.mark.asyncio
-async def test_browser_evaluate_cache_miss(mock_proxy_client, mock_navigation_cache):
+async def test_browser_evaluate_cache_miss(mock_pool_manager, mock_proxy_client, mock_navigation_cache):
     """Test browser_evaluate with expired/missing cache."""
     from playwright_proxy_mcp import server
 
     mock_proxy_client.call_tool.return_value = {"result": [1, 2, 3]}
 
-    with patch.object(server, "proxy_client", mock_proxy_client), patch.object(
+    with patch.object(server, "pool_manager", mock_pool_manager), patch.object(
         server, "navigation_cache", mock_navigation_cache
     ):
         # First call
@@ -197,7 +197,7 @@ async def test_browser_evaluate_cache_miss(mock_proxy_client, mock_navigation_ca
 
 
 @pytest.mark.asyncio
-async def test_browser_evaluate_pagination_with_element(mock_proxy_client, mock_navigation_cache):
+async def test_browser_evaluate_pagination_with_element(mock_pool_manager, mock_proxy_client, mock_navigation_cache):
     """Test browser_evaluate pagination with element parameter."""
     from playwright_proxy_mcp import server
 
@@ -205,7 +205,7 @@ async def test_browser_evaluate_pagination_with_element(mock_proxy_client, mock_
         "result": ["option1", "option2", "option3"]
     }
 
-    with patch.object(server, "proxy_client", mock_proxy_client), patch.object(
+    with patch.object(server, "pool_manager", mock_pool_manager), patch.object(
         server, "navigation_cache", mock_navigation_cache
     ):
         result = await server.browser_evaluate.fn(
@@ -233,14 +233,14 @@ async def test_browser_evaluate_pagination_with_element(mock_proxy_client, mock_
 
 
 @pytest.mark.asyncio
-async def test_browser_evaluate_single_value_wrapping(mock_proxy_client, mock_navigation_cache):
+async def test_browser_evaluate_single_value_wrapping(mock_pool_manager, mock_proxy_client, mock_navigation_cache):
     """Test browser_evaluate wraps primitive values."""
     from playwright_proxy_mcp import server
 
     # Test with string
     mock_proxy_client.call_tool.return_value = {"result": "hello"}
 
-    with patch.object(server, "proxy_client", mock_proxy_client), patch.object(
+    with patch.object(server, "pool_manager", mock_pool_manager), patch.object(
         server, "navigation_cache", mock_navigation_cache
     ):
         result = await server.browser_evaluate.fn(function="() => 'hello'", limit=10)
@@ -253,14 +253,14 @@ async def test_browser_evaluate_single_value_wrapping(mock_proxy_client, mock_na
 
 @pytest.mark.asyncio
 async def test_browser_evaluate_offset_beyond_single_value(
-    mock_proxy_client, mock_navigation_cache
+    mock_pool_manager, mock_proxy_client, mock_navigation_cache
 ):
     """Test browser_evaluate with offset beyond single value."""
     from playwright_proxy_mcp import server
 
     mock_proxy_client.call_tool.return_value = {"result": 42}
 
-    with patch.object(server, "proxy_client", mock_proxy_client), patch.object(
+    with patch.object(server, "pool_manager", mock_pool_manager), patch.object(
         server, "navigation_cache", mock_navigation_cache
     ):
         result = await server.browser_evaluate.fn(function="() => 42", offset=1, limit=10)
@@ -272,13 +272,13 @@ async def test_browser_evaluate_offset_beyond_single_value(
 
 
 @pytest.mark.asyncio
-async def test_browser_evaluate_last_page(mock_proxy_client, mock_navigation_cache):
+async def test_browser_evaluate_last_page(mock_pool_manager, mock_proxy_client, mock_navigation_cache):
     """Test browser_evaluate on last page."""
     from playwright_proxy_mcp import server
 
     mock_proxy_client.call_tool.return_value = {"result": list(range(25))}
 
-    with patch.object(server, "proxy_client", mock_proxy_client), patch.object(
+    with patch.object(server, "pool_manager", mock_pool_manager), patch.object(
         server, "navigation_cache", mock_navigation_cache
     ):
         # First call

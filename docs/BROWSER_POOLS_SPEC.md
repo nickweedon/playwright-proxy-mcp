@@ -74,6 +74,10 @@ Version 2.0.0 introduces **browser pool** support, enabling the proxy to manage 
 └─────────────────────────────────────────────────────────────┘
 ```
 
+**Shared Resources Across All Pools:**
+- **Blob storage** (`blob_manager`): Single filesystem-based storage, content-addressable (SHA256)
+- **Navigation cache** (`navigation_cache`): Global TTL-based cache for ARIA snapshot pagination
+
 ### Resource Leasing
 
 - **Library**: [`leasedkeyq`](https://github.com/nickweedon/leasedkeyq)
@@ -419,6 +423,18 @@ All global and pool-level keys can be overridden at instance level, **except**:
 |-----|------|-------------|---------|
 | `ALIAS` | str | Friendly name for instance | `"main_browser"` |
 
+#### Alias Validation Rules
+
+Instance aliases must meet these requirements:
+- **Pattern**: Must NOT match `/^\d+$/` (numeric strings reserved for instance IDs)
+- **Uniqueness**: Must be unique within pool (no duplicate aliases)
+- **Case-sensitivity**: Case-sensitive matching (`"Debug"` ≠ `"debug"`)
+- **Validation**: Checked during config parsing; startup fails if violated
+
+Examples:
+- ✅ Valid: `"main_browser"`, `"debug-firefox"`, `"test1"`
+- ❌ Invalid: `"0"` (looks like instance ID), `"123"` (numeric)
+
 ---
 
 ## Examples
@@ -754,6 +770,8 @@ Health checks run periodically (configurable interval, default 20 seconds):
 3. **Timeout**: Mark as failed if no response within 5 seconds
 4. **Auto-recovery**: Optionally restart failed instances (future enhancement)
 
+**Health Check Concurrency**: Health checks bypass the lease queue and directly probe subprocess health via `is_healthy()`. This prevents false negatives when all instances are leased but healthy.
+
 **Current Implementation**: Uses existing health check logic from current proxy, extended to track per-instance state.
 
 #### Example Workflow
@@ -824,6 +842,7 @@ class PoolManager:
 | `Duplicate alias in pool` | Two instances in same pool have same `ALIAS` | Use unique aliases per pool |
 | `Invalid pool name in browser_pool` | Tool called with non-existent pool | Use existing pool name |
 | `INSTANCES defined globally` | `PW_MCP_PROXY_INSTANCES=...` found | Move to pool level: `PW_MCP_PROXY__<POOL>_INSTANCES` |
+| `No healthy instances in default pool` | User omits `browser_pool`, default pool exists but all instances failed | Return error: "Default pool '<name>' has no healthy instances. Specify explicit pool or restart failed instances." |
 
 ### Runtime Errors (Fail-Fast)
 

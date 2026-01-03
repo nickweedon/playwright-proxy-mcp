@@ -3,9 +3,14 @@ Shared browser test fixtures.
 
 This module provides fixtures for browser integration tests that require
 a running Playwright browser instance with blob management.
+
+Version 2.0.0: Updated to use pool manager architecture.
 """
 
+import os
 import tempfile
+from contextlib import asynccontextmanager
+from unittest.mock import Mock
 
 import pytest
 import pytest_asyncio
@@ -14,9 +19,8 @@ from playwright_proxy_mcp import server
 from playwright_proxy_mcp.playwright import (
     BinaryInterceptionMiddleware,
     PlaywrightBlobManager,
-    PlaywrightProcessManager,
-    PlaywrightProxyClient,
-    load_playwright_config,
+    PoolManager,
+    load_pool_manager_config,
 )
 from playwright_proxy_mcp.playwright.config import BlobConfig
 from playwright_proxy_mcp.utils.navigation_cache import NavigationCache
@@ -25,21 +29,20 @@ from playwright_proxy_mcp.utils.navigation_cache import NavigationCache
 @pytest_asyncio.fixture
 async def browser_setup():
     """
-    Set up browser components for integration tests.
+    Set up browser components for integration tests using pool manager (v2.0.0).
 
     This fixture initializes all components needed for browser testing:
     - Temporary directory for blob storage
     - Blob manager with cleanup task
-    - Process manager for Playwright subprocess
     - Binary interception middleware
-    - Proxy client for communicating with Playwright
+    - Pool manager with single 'ISOLATED' pool for testing
     - Navigation cache for pagination
 
     The fixture temporarily patches the global server components to use
     the test instances, then restores them on teardown.
 
     Yields:
-        tuple: (proxy_client, navigation_cache) for tests to use
+        tuple: (pool_manager, navigation_cache) for tests to use
     """
     with tempfile.TemporaryDirectory() as tmpdir:
         # Set up blob configuration
@@ -51,53 +54,82 @@ async def browser_setup():
             "cleanup_interval_minutes": 60,
         }
 
-        # Load and configure Playwright settings
-        playwright_config = load_playwright_config()
-        playwright_config["headless"] = True
-        playwright_config["output_dir"] = f"{tmpdir}/playwright-output"
-        playwright_config["caps"] = "vision,pdf"
-        playwright_config["browser"] = "chrome"
-        playwright_config["timeout_action"] = 15000
-        playwright_config["timeout_navigation"] = 5000
-        playwright_config["image_responses"] = "allow"
+        # Set up environment variables for pool configuration
+        # Save original env vars to restore later
+        original_env = {}
+        test_env_vars = {
+            # Global configuration
+            "PW_MCP_PROXY_BROWSER": "chrome",
+            "PW_MCP_PROXY_HEADLESS": "true",
+            "PW_MCP_PROXY_TIMEOUT_ACTION": "15000",
+            "PW_MCP_PROXY_TIMEOUT_NAVIGATION": "5000",
+            "PW_MCP_PROXY_CAPS": "vision,pdf",
+            "PW_MCP_PROXY_IMAGE_RESPONSES": "allow",
+            "PW_MCP_PROXY_VIEWPORT_SIZE": "1920x1080",
+            # Pool configuration - single instance for testing
+            "PW_MCP_PROXY__ISOLATED_INSTANCES": "1",
+            "PW_MCP_PROXY__ISOLATED_IS_DEFAULT": "true",
+            "PW_MCP_PROXY__ISOLATED_DESCRIPTION": "Test pool for integration tests",
+            "PW_MCP_PROXY__ISOLATED_OUTPUT_DIR": f"{tmpdir}/playwright-output",
+        }
 
-        # Initialize components
-        blob_manager = PlaywrightBlobManager(blob_config)
-        process_manager = PlaywrightProcessManager()
-        middleware = BinaryInterceptionMiddleware(blob_manager, blob_config["size_threshold_kb"])
-        proxy_client = PlaywrightProxyClient(process_manager, middleware)
-        navigation_cache = NavigationCache(default_ttl=300)
+        # Apply test environment variables
+        for key, value in test_env_vars.items():
+            original_env[key] = os.environ.get(key)
+            os.environ[key] = value
+
+        # Save original server globals before starting
+        original_pool_manager = server.pool_manager
+        original_cache = server.navigation_cache
+        original_blob_manager = server.blob_manager
+        original_middleware = server.middleware
+
+        pool_manager = None
+        blob_manager = None
 
         try:
-            # Start proxy client
+            # Load pool manager configuration from environment
+            pool_manager_config = load_pool_manager_config()
+
+            # Initialize components
+            blob_manager = PlaywrightBlobManager(blob_config)
+            middleware = BinaryInterceptionMiddleware(blob_manager, blob_config["size_threshold_kb"])
+            navigation_cache = NavigationCache(default_ttl=300)
+
+            # Initialize pool manager
+            pool_manager = PoolManager(pool_manager_config, blob_manager, middleware)
+
+            # Start blob cleanup and pool manager
             await blob_manager.start_cleanup_task()
-            await proxy_client.start(playwright_config)
+            await pool_manager.initialize()
 
-            # Temporarily set global navigation cache for browser_navigate/browser_snapshot
-            original_cache = server.navigation_cache
+            # Temporarily patch global server components
+            server.pool_manager = pool_manager
             server.navigation_cache = navigation_cache
-
-            # Temporarily set global proxy_client for the tool functions
-            original_proxy = server.proxy_client
-            server.proxy_client = proxy_client
-
-            # Temporarily set global blob_manager
-            original_blob_manager = server.blob_manager
             server.blob_manager = blob_manager
-
-            # Temporarily set global middleware
-            original_middleware = server.middleware
             server.middleware = middleware
 
-            yield proxy_client, navigation_cache
+            yield pool_manager, navigation_cache
 
         finally:
-            # Restore original globals
+            # Restore original server globals
+            server.pool_manager = original_pool_manager
             server.navigation_cache = original_cache
-            server.proxy_client = original_proxy
             server.blob_manager = original_blob_manager
             server.middleware = original_middleware
 
-            # Clean up
-            await blob_manager.stop_cleanup_task()
-            await proxy_client.stop()
+            # Clean up pool manager (stops all instances)
+            if pool_manager:
+                for pool in pool_manager.pools.values():
+                    await pool.stop()
+
+            # Stop blob cleanup
+            if blob_manager:
+                await blob_manager.stop_cleanup_task()
+
+            # Restore original environment variables
+            for key, original_value in original_env.items():
+                if original_value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = original_value

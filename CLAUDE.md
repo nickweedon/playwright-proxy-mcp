@@ -6,7 +6,120 @@ This document provides context and guidelines for Claude when working with this 
 
 This is a proxy server for Microsoft's playwright-mcp built with Python and FastMCP. It provides efficient handling of large binary data (screenshots, PDFs) by storing them as blobs and returning blob:// URIs. All blob retrieval is delegated to a separate MCP Resource Server, following mcp_mapped_resource_lib best practices.
 
-## Reasearch, Investigating and Bug Fixing
+**Version 2.0.0**: The proxy now supports **browser pools** - multiple isolated browser instances organized into named pools with different configurations. This enables concurrent browser operations, instance isolation, and optimized resource allocation.
+
+## Browser Pools Architecture (v2.0.0)
+
+### Overview
+
+Browser pools allow you to run multiple browser instances with different configurations simultaneously. Each pool contains one or more browser instances that can be leased for exclusive use.
+
+### Key Concepts
+
+- **Pool**: A named group of browser instances with shared configuration (e.g., "CHROMIUM", "FIREFOX", "ISOLATED")
+- **Instance**: A single playwright-mcp subprocess within a pool (identified by numeric ID or alias)
+- **Lease**: Temporary exclusive access to a browser instance via RAII pattern (async context manager)
+- **FIFO Selection**: When no specific instance is requested, instances are leased in first-in-first-out order
+
+### Configuration
+
+Pools are configured via environment variables using a hierarchical pattern:
+
+```bash
+# Global defaults (apply to all pools/instances)
+PW_MCP_PROXY_BROWSER=chromium
+PW_MCP_PROXY_HEADLESS=true
+PW_MCP_PROXY_TIMEOUT_ACTION=15000
+
+# Pool-level configuration
+PW_MCP_PROXY__DEFAULT_INSTANCES=3              # Number of instances in pool
+PW_MCP_PROXY__DEFAULT_IS_DEFAULT=true         # Mark as default pool
+PW_MCP_PROXY__DEFAULT_DESCRIPTION="General purpose browsing"
+
+# Instance-level overrides
+PW_MCP_PROXY__DEFAULT__0_BROWSER=firefox      # Instance 0 uses Firefox
+PW_MCP_PROXY__DEFAULT__1_ALIAS=debug          # Instance 1 has alias "debug"
+PW_MCP_PROXY__DEFAULT__1_HEADLESS=false       # Instance 1 runs headed
+```
+
+**Configuration Precedence**: Instance > Pool > Global
+
+See [docs/BROWSER_POOLS_SPEC.md](docs/BROWSER_POOLS_SPEC.md) for complete configuration reference.
+
+### Using Pools in Tools
+
+All browser tools support two optional parameters:
+
+- `browser_pool` (str): Name of pool to use (defaults to pool with `IS_DEFAULT=true`)
+- `browser_instance` (str): Specific instance ID or alias (defaults to FIFO selection)
+
+```python
+# Use default pool, FIFO instance selection
+await browser_navigate(url="https://example.com")
+
+# Use specific pool
+await browser_navigate(url="https://example.com", browser_pool="FIREFOX")
+
+# Use specific instance by ID
+await browser_navigate(url="https://example.com", browser_pool="DEFAULT", browser_instance="0")
+
+# Use specific instance by alias
+await browser_navigate(url="https://example.com", browser_pool="DEFAULT", browser_instance="debug")
+```
+
+### Monitoring Pools
+
+Use the `browser_pool_status` tool to monitor pool health and lease activity:
+
+```python
+# Get status of all pools
+status = await browser_pool_status()
+for pool in status["pools"]:
+    print(f"{pool['name']}: {pool['available_instances']}/{pool['total_instances']} available")
+
+# Get status of specific pool
+status = await browser_pool_status(pool_name="ISOLATED")
+```
+
+### Implementation Details
+
+- **Pool Manager**: `src/playwright_proxy_mcp/playwright/pool_manager.py`
+  - `PoolManager`: Manages multiple pools
+  - `BrowserPool`: Manages instances within a pool using `leasedkeyq` for FIFO leasing
+  - `BrowserInstance`: Wraps `PlaywrightProxyClient` + `PlaywrightProcessManager`
+
+- **Lease Pattern**: All tool calls use RAII pattern via async context manager:
+  ```python
+  async with pool.lease_instance(instance_key) as proxy_client:
+      result = await proxy_client.call_tool(tool_name, arguments)
+  # Instance automatically released back to pool on exit
+  ```
+
+- **Health Checks**: Each instance runs periodic health checks (default 20s interval)
+  - Health checks bypass leasing to prevent false negatives
+  - Failed instances remain in pool but won't be leased
+
+### Migration from v1.x
+
+**v1.x** (single proxy client):
+```python
+# Old: server.proxy_client was a single PlaywrightProxyClient
+proxy_client = server.proxy_client
+result = await proxy_client.call_tool("browser_navigate", {"url": "..."})
+```
+
+**v2.0** (pool manager):
+```python
+# New: server.pool_manager manages multiple pools of instances
+pool_manager = server.pool_manager
+pool = pool_manager.get_pool(None)  # Get default pool
+async with pool.lease_instance() as proxy_client:
+    result = await proxy_client.call_tool("browser_navigate", {"url": "..."})
+```
+
+**Testing**: Update test fixtures to use `mock_pool_manager` instead of `mock_proxy_client`. See [tests/conftest.py](tests/conftest.py) for mock fixtures.
+
+## Research, Investigating and Bug Fixing
 
 When an issue may possibly have anything to do with the upstream Playwright MCP Server, perform web searches to look for know issues and/or documentation.
 
@@ -65,7 +178,8 @@ src/playwright_proxy_mcp/
 ├── types.py               # TypedDict definitions for blob/playwright types
 ├── playwright/            # Playwright proxy components
 │   ├── __init__.py       # Package initialization
-│   ├── config.py         # Configuration loading (env vars)
+│   ├── config.py         # Configuration loading (env vars, pool config)
+│   ├── pool_manager.py   # Browser pool management (v2.0.0)
 │   ├── process_manager.py # Subprocess monitoring and logging
 │   ├── blob_manager.py   # Blob storage wrapper (mcp-mapped-resource-lib)
 │   ├── middleware.py     # Binary interception logic

@@ -233,17 +233,29 @@ async def test_browser_tools_integration(browser_setup):
 @pytest.mark.asyncio
 async def test_browser_proxy_health(browser_setup):
     """
-    Test that the proxy client is healthy and responsive.
+    Test that the pool manager is healthy and responsive (v2.0.0).
 
     This test verifies:
-    1. Proxy client initializes correctly
-    2. Health checks work
+    1. Pool manager initializes correctly
+    2. Instances are healthy
     3. Tools are available
     """
-    proxy_client, navigation_cache = browser_setup
+    pool_manager, navigation_cache = browser_setup
 
-    # Verify proxy is healthy
-    assert await proxy_client.is_healthy(), "Proxy client should be healthy"
+    # Verify pool manager has pools
+    assert len(pool_manager.pools) > 0, "Pool manager should have at least one pool"
+
+    # Get the default pool
+    default_pool = pool_manager.get_pool(None)
+    assert default_pool is not None, "Default pool should exist"
+
+    # Verify pool has healthy instances
+    assert len(default_pool.instances) > 0, "Pool should have at least one instance"
+
+    # Check instance health
+    for instance_id, instance in default_pool.instances.items():
+        is_healthy = await instance.check_health()
+        assert is_healthy, f"Instance {instance_id} should be healthy"
 
     # Navigate to verify it's actually working
     result = await server.browser_navigate.fn(
@@ -251,9 +263,10 @@ async def test_browser_proxy_health(browser_setup):
         silent_mode=True
     )
 
-    assert result.get("success") is True, "Navigation should work when proxy is healthy"
+    assert result.get("success") is True, "Navigation should work when pool is healthy"
 
-    print("\n✓ Proxy client is healthy")
+    print("\n✓ Pool manager is healthy")
+    print(f"✓ {len(default_pool.instances)} browser instance(s) available")
     print("✓ All tools accessible")
 
 

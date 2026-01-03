@@ -23,94 +23,86 @@ def test_server_instructions():
 
 @pytest.mark.asyncio
 async def test_call_playwright_tool_no_client():
-    """Test calling playwright tool when client is not initialized."""
-    with patch("playwright_proxy_mcp.server.proxy_client", None):
-        with pytest.raises(RuntimeError, match="Playwright subprocess not running"):
+    """Test calling playwright tool when pool manager is not initialized."""
+    with patch("playwright_proxy_mcp.server.pool_manager", None):
+        with pytest.raises(RuntimeError, match="Pool manager not initialized"):
             await _call_playwright_tool("navigate", {"url": "https://example.com"})
 
 
 @pytest.mark.asyncio
-async def test_call_playwright_tool_unhealthy():
-    """Test calling playwright tool when client is unhealthy."""
-    mock_client = Mock()
-    mock_client.is_healthy = AsyncMock(return_value=False)
+async def test_call_playwright_tool_unhealthy(mock_pool_manager, mock_proxy_client):
+    """Test calling playwright tool when pool has no healthy instances."""
+    # Mock the pool to raise error when no healthy instances available
+    mock_pool = Mock()
+    mock_pool.lease_instance = Mock(side_effect=RuntimeError("No healthy instances available"))
+    mock_pool_manager.get_pool = Mock(return_value=mock_pool)
 
-    with patch("playwright_proxy_mcp.server.proxy_client", mock_client):
-        with pytest.raises(RuntimeError, match="Playwright subprocess not running"):
+    with patch("playwright_proxy_mcp.server.pool_manager", mock_pool_manager):
+        with pytest.raises(RuntimeError, match="No healthy instances available"):
             await _call_playwright_tool("navigate", {"url": "https://example.com"})
 
 
 @pytest.mark.asyncio
-async def test_call_playwright_tool_no_process():
-    """Test calling playwright tool when process is not initialized."""
-    mock_client = Mock()
-    mock_client.is_healthy = AsyncMock(return_value=True)
-    mock_client.call_tool = AsyncMock(
+async def test_call_playwright_tool_no_process(mock_pool_manager, mock_proxy_client):
+    """Test calling playwright tool when proxy client call fails."""
+    # Mock the proxy client to raise error
+    mock_proxy_client.call_tool = AsyncMock(
         side_effect=RuntimeError("Playwright subprocess not properly initialized")
     )
 
-    with patch("playwright_proxy_mcp.server.proxy_client", mock_client):
+    with patch("playwright_proxy_mcp.server.pool_manager", mock_pool_manager):
         with pytest.raises(RuntimeError, match="not properly initialized"):
             await _call_playwright_tool("navigate", {"url": "https://example.com"})
 
 
 @pytest.mark.asyncio
-async def test_call_playwright_tool_success():
+async def test_call_playwright_tool_success(mock_pool_manager, mock_proxy_client):
     """Test successful playwright tool call."""
-    mock_client = Mock()
-    mock_client.is_healthy = AsyncMock(return_value=True)
-    mock_client.call_tool = AsyncMock(return_value={"status": "success", "data": "transformed"})
+    mock_proxy_client.call_tool = AsyncMock(return_value={"status": "success", "data": "transformed"})
 
-    with patch("playwright_proxy_mcp.server.proxy_client", mock_client):
+    with patch("playwright_proxy_mcp.server.pool_manager", mock_pool_manager):
         # Use browser_ prefix directly (no mapping needed)
         result = await _call_playwright_tool("browser_navigate", {"url": "https://example.com"})
 
         assert result == {"status": "success", "data": "transformed"}
 
         # Verify call_tool was called with the correct tool name
-        mock_client.call_tool.assert_called_once_with(
+        mock_proxy_client.call_tool.assert_called_once_with(
             "browser_navigate", {"url": "https://example.com"}
         )
 
 
 @pytest.mark.asyncio
-async def test_call_playwright_tool_strips_prefix():
+async def test_call_playwright_tool_strips_prefix(mock_pool_manager, mock_proxy_client):
     """Test that tool names are passed through directly without modification."""
-    mock_client = Mock()
-    mock_client.is_healthy = AsyncMock(return_value=True)
-    mock_client.call_tool = AsyncMock(return_value={})
+    mock_proxy_client.call_tool = AsyncMock(return_value={})
 
-    with patch("playwright_proxy_mcp.server.proxy_client", mock_client):
+    with patch("playwright_proxy_mcp.server.pool_manager", mock_pool_manager):
         await _call_playwright_tool("browser_navigate", {"url": "https://example.com"})
 
         # Tool name should be passed through as-is
-        mock_client.call_tool.assert_called_once_with(
+        mock_proxy_client.call_tool.assert_called_once_with(
             "browser_navigate", {"url": "https://example.com"}
         )
 
 
 @pytest.mark.asyncio
-async def test_call_playwright_tool_error_response():
+async def test_call_playwright_tool_error_response(mock_pool_manager, mock_proxy_client):
     """Test handling of error response from playwright."""
-    mock_client = Mock()
-    mock_client.is_healthy = AsyncMock(return_value=True)
-    mock_client.call_tool = AsyncMock(
+    mock_proxy_client.call_tool = AsyncMock(
         side_effect=RuntimeError("MCP error: {'code': -1, 'message': 'Navigation failed'}")
     )
 
-    with patch("playwright_proxy_mcp.server.proxy_client", mock_client):
+    with patch("playwright_proxy_mcp.server.pool_manager", mock_pool_manager):
         with pytest.raises(RuntimeError, match="MCP error"):
             await _call_playwright_tool("navigate", {"url": "https://example.com"})
 
 
 @pytest.mark.asyncio
-async def test_playwright_screenshot_returns_blob_uri():
+async def test_playwright_screenshot_returns_blob_uri(mock_pool_manager, mock_proxy_client):
     """Test that browser_take_screenshot returns blob:// URI directly."""
-    mock_client = Mock()
-    mock_client.is_healthy = AsyncMock(return_value=True)
-
     # Mock response with blob:// URI (after middleware transformation)
-    mock_client.call_tool = AsyncMock(
+    mock_proxy_client.call_tool = AsyncMock(
         return_value={
             "screenshot": "blob://1234567890-abc123.png",
             "screenshot_size_kb": 150,
@@ -118,7 +110,7 @@ async def test_playwright_screenshot_returns_blob_uri():
         }
     )
 
-    with patch("playwright_proxy_mcp.server.proxy_client", mock_client):
+    with patch("playwright_proxy_mcp.server.pool_manager", mock_pool_manager):
         # Call _call_playwright_tool directly since the tool is wrapped by FastMCP
         result = await _call_playwright_tool(
             "browser_take_screenshot", {"filename": "test", "fullPage": True}
@@ -131,6 +123,6 @@ async def test_playwright_screenshot_returns_blob_uri():
         assert result["screenshot_mime_type"] == "image/png"
 
         # Verify correct tool call
-        mock_client.call_tool.assert_called_once_with(
+        mock_proxy_client.call_tool.assert_called_once_with(
             "browser_take_screenshot", {"filename": "test", "fullPage": True}
         )

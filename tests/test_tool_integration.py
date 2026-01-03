@@ -6,29 +6,14 @@ rather than the underlying proxy methods. These tests ensure that the
 tool wrappers and parameter handling work correctly.
 """
 
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import patch
 
 import pytest
 
 from playwright_proxy_mcp.types import NavigationResponse
 
-
-@pytest.fixture
-def mock_proxy_client():
-    """Create a mock proxy client for testing."""
-    mock_client = Mock()
-    mock_client.is_healthy = AsyncMock(return_value=True)
-    mock_client.call_tool = AsyncMock()
-    return mock_client
-
-
-@pytest.fixture
-def mock_navigation_cache():
-    """Create a mock navigation cache for testing."""
-    mock_cache = Mock()
-    mock_cache.get = Mock(return_value=None)
-    mock_cache.create = Mock(return_value="nav_test123")
-    return mock_cache
+# Note: mock_proxy_client, mock_pool_manager, and mock_navigation_cache
+# fixtures are now provided in conftest.py
 
 
 # =============================================================================
@@ -37,7 +22,7 @@ def mock_navigation_cache():
 
 
 @pytest.mark.asyncio
-async def test_browser_navigate_basic(mock_proxy_client, mock_navigation_cache):
+async def test_browser_navigate_basic(mock_pool_manager, mock_proxy_client, mock_navigation_cache):
     """Test basic browser_navigate call."""
     from playwright_proxy_mcp import server
 
@@ -51,7 +36,7 @@ async def test_browser_navigate_basic(mock_proxy_client, mock_navigation_cache):
         ]
     }
 
-    with patch.object(server, "proxy_client", mock_proxy_client), \
+    with patch.object(server, "pool_manager", mock_pool_manager), \
          patch.object(server, "navigation_cache", mock_navigation_cache):
 
         # Access the underlying function via .fn attribute
@@ -72,7 +57,7 @@ async def test_browser_navigate_basic(mock_proxy_client, mock_navigation_cache):
 
 
 @pytest.mark.asyncio
-async def test_browser_navigate_silent_mode(mock_proxy_client, mock_navigation_cache):
+async def test_browser_navigate_silent_mode(mock_pool_manager, mock_proxy_client, mock_navigation_cache):
     """Test browser_navigate with silent mode."""
     from playwright_proxy_mcp import server
 
@@ -80,7 +65,7 @@ async def test_browser_navigate_silent_mode(mock_proxy_client, mock_navigation_c
         "content": [{"type": "text", "text": "- button 'Submit'"}]
     }
 
-    with patch.object(server, "proxy_client", mock_proxy_client), \
+    with patch.object(server, "pool_manager", mock_pool_manager), \
          patch.object(server, "navigation_cache", mock_navigation_cache):
 
         result = await server.browser_navigate.fn(
@@ -94,7 +79,7 @@ async def test_browser_navigate_silent_mode(mock_proxy_client, mock_navigation_c
 
 
 @pytest.mark.asyncio
-async def test_browser_navigate_with_jmespath_query(mock_proxy_client, mock_navigation_cache):
+async def test_browser_navigate_with_jmespath_query(mock_pool_manager, mock_proxy_client, mock_navigation_cache):
     """Test browser_navigate with JMESPath query."""
     from playwright_proxy_mcp import server
 
@@ -108,7 +93,7 @@ async def test_browser_navigate_with_jmespath_query(mock_proxy_client, mock_navi
         ]
     }
 
-    with patch.object(server, "proxy_client", mock_proxy_client), \
+    with patch.object(server, "pool_manager", mock_pool_manager), \
          patch.object(server, "navigation_cache", mock_navigation_cache):
 
         result = await server.browser_navigate.fn(
@@ -123,7 +108,7 @@ async def test_browser_navigate_with_jmespath_query(mock_proxy_client, mock_navi
 
 
 @pytest.mark.asyncio
-async def test_browser_navigate_pagination(mock_proxy_client, mock_navigation_cache):
+async def test_browser_navigate_pagination(mock_pool_manager, mock_proxy_client, mock_navigation_cache):
     """Test browser_navigate with pagination requires JMESPath query."""
     from playwright_proxy_mcp import server
 
@@ -140,7 +125,7 @@ async def test_browser_navigate_pagination(mock_proxy_client, mock_navigation_ca
         ]
     }
 
-    with patch.object(server, "proxy_client", mock_proxy_client), \
+    with patch.object(server, "pool_manager", mock_pool_manager), \
          patch.object(server, "navigation_cache", mock_navigation_cache):
 
         # Test 1: Pagination without query or flatten should fail
@@ -168,11 +153,11 @@ async def test_browser_navigate_pagination(mock_proxy_client, mock_navigation_ca
 
 
 @pytest.mark.asyncio
-async def test_browser_navigate_invalid_output_format(mock_proxy_client, mock_navigation_cache):
+async def test_browser_navigate_invalid_output_format(mock_pool_manager, mock_proxy_client, mock_navigation_cache):
     """Test browser_navigate with invalid output format."""
     from playwright_proxy_mcp import server
 
-    with patch.object(server, "proxy_client", mock_proxy_client), \
+    with patch.object(server, "pool_manager", mock_pool_manager), \
          patch.object(server, "navigation_cache", mock_navigation_cache):
 
         result = await server.browser_navigate.fn(
@@ -186,13 +171,13 @@ async def test_browser_navigate_invalid_output_format(mock_proxy_client, mock_na
 
 
 @pytest.mark.asyncio
-async def test_browser_navigate_back(mock_proxy_client):
+async def test_browser_navigate_back(mock_pool_manager, mock_proxy_client):
     """Test browser_navigate_back tool."""
     from playwright_proxy_mcp import server
 
     mock_proxy_client.call_tool.return_value = {"status": "success"}
 
-    with patch.object(server, "proxy_client", mock_proxy_client):
+    with patch.object(server, "pool_manager", mock_pool_manager):
         result = await server.browser_navigate_back.fn()
 
         # Verify the result
@@ -211,7 +196,7 @@ async def test_browser_navigate_back(mock_proxy_client):
 
 
 @pytest.mark.asyncio
-async def test_browser_take_screenshot_basic(mock_proxy_client):
+async def test_browser_take_screenshot_basic(mock_pool_manager, mock_proxy_client):
     """Test browser_take_screenshot tool."""
     from playwright_proxy_mcp import server
 
@@ -224,7 +209,7 @@ async def test_browser_take_screenshot_basic(mock_proxy_client):
         ]
     }
 
-    with patch.object(server, "proxy_client", mock_proxy_client):
+    with patch.object(server, "pool_manager", mock_pool_manager):
         result = await server.browser_take_screenshot.fn()
 
         # Verify the result is a blob URI
@@ -238,7 +223,7 @@ async def test_browser_take_screenshot_basic(mock_proxy_client):
 
 
 @pytest.mark.asyncio
-async def test_browser_take_screenshot_with_params(mock_proxy_client):
+async def test_browser_take_screenshot_with_params(mock_pool_manager, mock_proxy_client):
     """Test browser_take_screenshot with all parameters."""
     from playwright_proxy_mcp import server
 
@@ -251,7 +236,7 @@ async def test_browser_take_screenshot_with_params(mock_proxy_client):
         ]
     }
 
-    with patch.object(server, "proxy_client", mock_proxy_client):
+    with patch.object(server, "pool_manager", mock_pool_manager):
         result = await server.browser_take_screenshot.fn(
             type="jpeg",
             filename="test.jpeg",
@@ -277,7 +262,7 @@ async def test_browser_take_screenshot_with_params(mock_proxy_client):
 
 
 @pytest.mark.asyncio
-async def test_browser_pdf_save_basic(mock_proxy_client):
+async def test_browser_pdf_save_basic(mock_pool_manager, mock_proxy_client):
     """Test browser_pdf_save tool."""
     from playwright_proxy_mcp import server
 
@@ -290,7 +275,7 @@ async def test_browser_pdf_save_basic(mock_proxy_client):
         ]
     }
 
-    with patch.object(server, "proxy_client", mock_proxy_client):
+    with patch.object(server, "pool_manager", mock_pool_manager):
         result = await server.browser_pdf_save.fn()
 
         # Verify the result is a blob URI
@@ -304,7 +289,7 @@ async def test_browser_pdf_save_basic(mock_proxy_client):
 
 
 @pytest.mark.asyncio
-async def test_browser_pdf_save_with_filename(mock_proxy_client):
+async def test_browser_pdf_save_with_filename(mock_pool_manager, mock_proxy_client):
     """Test browser_pdf_save with filename."""
     from playwright_proxy_mcp import server
 
@@ -317,7 +302,7 @@ async def test_browser_pdf_save_with_filename(mock_proxy_client):
         ]
     }
 
-    with patch.object(server, "proxy_client", mock_proxy_client):
+    with patch.object(server, "pool_manager", mock_pool_manager):
         result = await server.browser_pdf_save.fn(filename="test.pdf")
 
         # Verify the result
@@ -336,7 +321,7 @@ async def test_browser_pdf_save_with_filename(mock_proxy_client):
 
 
 @pytest.mark.asyncio
-async def test_browser_run_code(mock_proxy_client):
+async def test_browser_run_code(mock_pool_manager, mock_proxy_client):
     """Test browser_run_code tool."""
     from playwright_proxy_mcp import server
 
@@ -344,7 +329,7 @@ async def test_browser_run_code(mock_proxy_client):
         "result": "Page Title"
     }
 
-    with patch.object(server, "proxy_client", mock_proxy_client):
+    with patch.object(server, "pool_manager", mock_pool_manager):
         result = await server.browser_run_code.fn(
             code="async (page) => { return await page.title(); }"
         )
@@ -360,7 +345,7 @@ async def test_browser_run_code(mock_proxy_client):
 
 
 @pytest.mark.asyncio
-async def test_browser_evaluate_basic(mock_proxy_client):
+async def test_browser_evaluate_basic(mock_pool_manager, mock_proxy_client):
     """Test browser_evaluate tool."""
     from playwright_proxy_mcp import server
 
@@ -368,7 +353,7 @@ async def test_browser_evaluate_basic(mock_proxy_client):
         "result": "evaluated value"
     }
 
-    with patch.object(server, "proxy_client", mock_proxy_client):
+    with patch.object(server, "pool_manager", mock_pool_manager):
         result = await server.browser_evaluate.fn(
             function="() => { return 'test'; }"
         )
@@ -384,7 +369,7 @@ async def test_browser_evaluate_basic(mock_proxy_client):
 
 
 @pytest.mark.asyncio
-async def test_browser_evaluate_with_element(mock_proxy_client):
+async def test_browser_evaluate_with_element(mock_pool_manager, mock_proxy_client):
     """Test browser_evaluate with element."""
     from playwright_proxy_mcp import server
 
@@ -392,7 +377,7 @@ async def test_browser_evaluate_with_element(mock_proxy_client):
         "result": "element value"
     }
 
-    with patch.object(server, "proxy_client", mock_proxy_client):
+    with patch.object(server, "pool_manager", mock_pool_manager):
         result = await server.browser_evaluate.fn(
             function="(element) => { return element.value; }",
             element="Submit button",
@@ -419,7 +404,7 @@ async def test_browser_evaluate_with_element(mock_proxy_client):
 
 
 @pytest.mark.asyncio
-async def test_browser_snapshot_with_filename(mock_proxy_client):
+async def test_browser_snapshot_with_filename(mock_pool_manager, mock_proxy_client):
     """Test browser_snapshot with filename (original behavior)."""
     from playwright_proxy_mcp import server
 
@@ -427,7 +412,7 @@ async def test_browser_snapshot_with_filename(mock_proxy_client):
         "status": "saved to file"
     }
 
-    with patch.object(server, "proxy_client", mock_proxy_client):
+    with patch.object(server, "pool_manager", mock_pool_manager):
         result = await server.browser_snapshot.fn(filename="snapshot.md")
 
         # Verify the result
@@ -441,7 +426,7 @@ async def test_browser_snapshot_with_filename(mock_proxy_client):
 
 
 @pytest.mark.asyncio
-async def test_browser_snapshot_advanced(mock_proxy_client, mock_navigation_cache):
+async def test_browser_snapshot_advanced(mock_pool_manager, mock_proxy_client, mock_navigation_cache):
     """Test browser_snapshot with advanced features."""
     from playwright_proxy_mcp import server
 
@@ -454,7 +439,7 @@ async def test_browser_snapshot_advanced(mock_proxy_client, mock_navigation_cach
         ]
     }
 
-    with patch.object(server, "proxy_client", mock_proxy_client), \
+    with patch.object(server, "pool_manager", mock_pool_manager), \
          patch.object(server, "navigation_cache", mock_navigation_cache):
 
         result = await server.browser_snapshot.fn(
@@ -470,13 +455,13 @@ async def test_browser_snapshot_advanced(mock_proxy_client, mock_navigation_cach
 
 
 @pytest.mark.asyncio
-async def test_browser_click_basic(mock_proxy_client):
+async def test_browser_click_basic(mock_pool_manager, mock_proxy_client):
     """Test browser_click tool."""
     from playwright_proxy_mcp import server
 
     mock_proxy_client.call_tool.return_value = {"status": "clicked"}
 
-    with patch.object(server, "proxy_client", mock_proxy_client):
+    with patch.object(server, "pool_manager", mock_pool_manager):
         result = await server.browser_click.fn(
             element="Submit button",
             ref="e1"
@@ -493,13 +478,13 @@ async def test_browser_click_basic(mock_proxy_client):
 
 
 @pytest.mark.asyncio
-async def test_browser_click_with_modifiers(mock_proxy_client):
+async def test_browser_click_with_modifiers(mock_pool_manager, mock_proxy_client):
     """Test browser_click with modifiers."""
     from playwright_proxy_mcp import server
 
     mock_proxy_client.call_tool.return_value = {"status": "clicked"}
 
-    with patch.object(server, "proxy_client", mock_proxy_client):
+    with patch.object(server, "pool_manager", mock_pool_manager):
         result = await server.browser_click.fn(
             element="Link",
             ref="e1",
@@ -522,13 +507,13 @@ async def test_browser_click_with_modifiers(mock_proxy_client):
 
 
 @pytest.mark.asyncio
-async def test_browser_drag(mock_proxy_client):
+async def test_browser_drag(mock_pool_manager, mock_proxy_client):
     """Test browser_drag tool."""
     from playwright_proxy_mcp import server
 
     mock_proxy_client.call_tool.return_value = {"status": "dragged"}
 
-    with patch.object(server, "proxy_client", mock_proxy_client):
+    with patch.object(server, "pool_manager", mock_pool_manager):
         result = await server.browser_drag.fn(
             startElement="Item 1",
             startRef="e1",
@@ -552,13 +537,13 @@ async def test_browser_drag(mock_proxy_client):
 
 
 @pytest.mark.asyncio
-async def test_browser_hover(mock_proxy_client):
+async def test_browser_hover(mock_pool_manager, mock_proxy_client):
     """Test browser_hover tool."""
     from playwright_proxy_mcp import server
 
     mock_proxy_client.call_tool.return_value = {"status": "hovered"}
 
-    with patch.object(server, "proxy_client", mock_proxy_client):
+    with patch.object(server, "pool_manager", mock_pool_manager):
         result = await server.browser_hover.fn(
             element="Menu item",
             ref="e1"
@@ -575,13 +560,13 @@ async def test_browser_hover(mock_proxy_client):
 
 
 @pytest.mark.asyncio
-async def test_browser_select_option(mock_proxy_client):
+async def test_browser_select_option(mock_pool_manager, mock_proxy_client):
     """Test browser_select_option tool."""
     from playwright_proxy_mcp import server
 
     mock_proxy_client.call_tool.return_value = {"status": "selected"}
 
-    with patch.object(server, "proxy_client", mock_proxy_client):
+    with patch.object(server, "pool_manager", mock_pool_manager):
         result = await server.browser_select_option.fn(
             element="Dropdown",
             ref="e1",
@@ -603,13 +588,13 @@ async def test_browser_select_option(mock_proxy_client):
 
 
 @pytest.mark.asyncio
-async def test_browser_generate_locator(mock_proxy_client):
+async def test_browser_generate_locator(mock_pool_manager, mock_proxy_client):
     """Test browser_generate_locator tool."""
     from playwright_proxy_mcp import server
 
     mock_proxy_client.call_tool.return_value = {"locator": "getByRole('button')"}
 
-    with patch.object(server, "proxy_client", mock_proxy_client):
+    with patch.object(server, "pool_manager", mock_pool_manager):
         result = await server.browser_generate_locator.fn(
             element="Submit button",
             ref="e1"
@@ -631,13 +616,13 @@ async def test_browser_generate_locator(mock_proxy_client):
 
 
 @pytest.mark.asyncio
-async def test_browser_fill_form(mock_proxy_client):
+async def test_browser_fill_form(mock_pool_manager, mock_proxy_client):
     """Test browser_fill_form tool."""
     from playwright_proxy_mcp import server
 
     mock_proxy_client.call_tool.return_value = {"status": "filled"}
 
-    with patch.object(server, "proxy_client", mock_proxy_client):
+    with patch.object(server, "pool_manager", mock_pool_manager):
         fields = [
             {
                 "name": "Username",
@@ -670,13 +655,13 @@ async def test_browser_fill_form(mock_proxy_client):
 
 
 @pytest.mark.asyncio
-async def test_browser_press_key(mock_proxy_client):
+async def test_browser_press_key(mock_pool_manager, mock_proxy_client):
     """Test browser_press_key tool."""
     from playwright_proxy_mcp import server
 
     mock_proxy_client.call_tool.return_value = {"status": "pressed"}
 
-    with patch.object(server, "proxy_client", mock_proxy_client):
+    with patch.object(server, "pool_manager", mock_pool_manager):
         result = await server.browser_press_key.fn(key="Enter")
 
         # Verify the result
@@ -690,13 +675,13 @@ async def test_browser_press_key(mock_proxy_client):
 
 
 @pytest.mark.asyncio
-async def test_browser_type_basic(mock_proxy_client):
+async def test_browser_type_basic(mock_pool_manager, mock_proxy_client):
     """Test browser_type tool."""
     from playwright_proxy_mcp import server
 
     mock_proxy_client.call_tool.return_value = {"status": "typed"}
 
-    with patch.object(server, "proxy_client", mock_proxy_client):
+    with patch.object(server, "pool_manager", mock_pool_manager):
         result = await server.browser_type.fn(
             element="Search box",
             ref="e1",
@@ -718,13 +703,13 @@ async def test_browser_type_basic(mock_proxy_client):
 
 
 @pytest.mark.asyncio
-async def test_browser_type_with_options(mock_proxy_client):
+async def test_browser_type_with_options(mock_pool_manager, mock_proxy_client):
     """Test browser_type with submit and slowly options."""
     from playwright_proxy_mcp import server
 
     mock_proxy_client.call_tool.return_value = {"status": "typed"}
 
-    with patch.object(server, "proxy_client", mock_proxy_client):
+    with patch.object(server, "pool_manager", mock_pool_manager):
         result = await server.browser_type.fn(
             element="Search box",
             ref="e1",
@@ -752,13 +737,13 @@ async def test_browser_type_with_options(mock_proxy_client):
 
 
 @pytest.mark.asyncio
-async def test_browser_wait_for_time(mock_proxy_client):
+async def test_browser_wait_for_time(mock_pool_manager, mock_proxy_client):
     """Test browser_wait_for with time."""
     from playwright_proxy_mcp import server
 
     mock_proxy_client.call_tool.return_value = {"status": "waited"}
 
-    with patch.object(server, "proxy_client", mock_proxy_client):
+    with patch.object(server, "pool_manager", mock_pool_manager):
         result = await server.browser_wait_for.fn(time=2.5)
 
         # Verify the result
@@ -772,13 +757,13 @@ async def test_browser_wait_for_time(mock_proxy_client):
 
 
 @pytest.mark.asyncio
-async def test_browser_wait_for_time_integer(mock_proxy_client):
+async def test_browser_wait_for_time_integer(mock_pool_manager, mock_proxy_client):
     """Test browser_wait_for with integer time value."""
     from playwright_proxy_mcp import server
 
     mock_proxy_client.call_tool.return_value = {"status": "waited"}
 
-    with patch.object(server, "proxy_client", mock_proxy_client):
+    with patch.object(server, "pool_manager", mock_pool_manager):
         result = await server.browser_wait_for.fn(time=3)
 
         # Verify the result
@@ -792,13 +777,13 @@ async def test_browser_wait_for_time_integer(mock_proxy_client):
 
 
 @pytest.mark.asyncio
-async def test_browser_wait_for_text(mock_proxy_client):
+async def test_browser_wait_for_text(mock_pool_manager, mock_proxy_client):
     """Test browser_wait_for with text."""
     from playwright_proxy_mcp import server
 
     mock_proxy_client.call_tool.return_value = {"status": "waited"}
 
-    with patch.object(server, "proxy_client", mock_proxy_client):
+    with patch.object(server, "pool_manager", mock_pool_manager):
         result = await server.browser_wait_for.fn(text="Loading complete")
 
         # Verify the proxy client was called
@@ -809,13 +794,13 @@ async def test_browser_wait_for_text(mock_proxy_client):
 
 
 @pytest.mark.asyncio
-async def test_browser_wait_for_text_gone(mock_proxy_client):
+async def test_browser_wait_for_text_gone(mock_pool_manager, mock_proxy_client):
     """Test browser_wait_for with textGone."""
     from playwright_proxy_mcp import server
 
     mock_proxy_client.call_tool.return_value = {"status": "waited"}
 
-    with patch.object(server, "proxy_client", mock_proxy_client):
+    with patch.object(server, "pool_manager", mock_pool_manager):
         result = await server.browser_wait_for.fn(textGone="Loading...")
 
         # Verify the proxy client was called
@@ -826,7 +811,7 @@ async def test_browser_wait_for_text_gone(mock_proxy_client):
 
 
 @pytest.mark.asyncio
-async def test_browser_navigate_then_wait(mock_proxy_client, mock_navigation_cache):
+async def test_browser_navigate_then_wait(mock_pool_manager, mock_proxy_client, mock_navigation_cache):
     """Test browser_navigate followed by browser_wait_for."""
     from playwright_proxy_mcp import server
 
@@ -844,7 +829,7 @@ async def test_browser_navigate_then_wait(mock_proxy_client, mock_navigation_cac
     # Setup mock to return different responses for different calls
     mock_proxy_client.call_tool.side_effect = [navigate_response, wait_response]
 
-    with patch.object(server, "proxy_client", mock_proxy_client), \
+    with patch.object(server, "pool_manager", mock_pool_manager), \
          patch.object(server, "navigation_cache", mock_navigation_cache):
 
         # First navigate to the page
@@ -873,13 +858,13 @@ async def test_browser_navigate_then_wait(mock_proxy_client, mock_navigation_cac
 
 
 @pytest.mark.asyncio
-async def test_browser_verify_element_visible(mock_proxy_client):
+async def test_browser_verify_element_visible(mock_pool_manager, mock_proxy_client):
     """Test browser_verify_element_visible tool."""
     from playwright_proxy_mcp import server
 
     mock_proxy_client.call_tool.return_value = {"status": "verified"}
 
-    with patch.object(server, "proxy_client", mock_proxy_client):
+    with patch.object(server, "pool_manager", mock_pool_manager):
         result = await server.browser_verify_element_visible.fn(
             role="button",
             accessibleName="Submit"
@@ -896,13 +881,13 @@ async def test_browser_verify_element_visible(mock_proxy_client):
 
 
 @pytest.mark.asyncio
-async def test_browser_verify_text_visible(mock_proxy_client):
+async def test_browser_verify_text_visible(mock_pool_manager, mock_proxy_client):
     """Test browser_verify_text_visible tool."""
     from playwright_proxy_mcp import server
 
     mock_proxy_client.call_tool.return_value = {"status": "verified"}
 
-    with patch.object(server, "proxy_client", mock_proxy_client):
+    with patch.object(server, "pool_manager", mock_pool_manager):
         result = await server.browser_verify_text_visible.fn(text="Welcome")
 
         # Verify the result
@@ -916,13 +901,13 @@ async def test_browser_verify_text_visible(mock_proxy_client):
 
 
 @pytest.mark.asyncio
-async def test_browser_verify_list_visible(mock_proxy_client):
+async def test_browser_verify_list_visible(mock_pool_manager, mock_proxy_client):
     """Test browser_verify_list_visible tool."""
     from playwright_proxy_mcp import server
 
     mock_proxy_client.call_tool.return_value = {"status": "verified"}
 
-    with patch.object(server, "proxy_client", mock_proxy_client):
+    with patch.object(server, "pool_manager", mock_pool_manager):
         result = await server.browser_verify_list_visible.fn(
             element="Menu",
             ref="e1",
@@ -944,13 +929,13 @@ async def test_browser_verify_list_visible(mock_proxy_client):
 
 
 @pytest.mark.asyncio
-async def test_browser_verify_value(mock_proxy_client):
+async def test_browser_verify_value(mock_pool_manager, mock_proxy_client):
     """Test browser_verify_value tool."""
     from playwright_proxy_mcp import server
 
     mock_proxy_client.call_tool.return_value = {"status": "verified"}
 
-    with patch.object(server, "proxy_client", mock_proxy_client):
+    with patch.object(server, "pool_manager", mock_pool_manager):
         result = await server.browser_verify_value.fn(
             type="textbox",
             element="Username",
@@ -979,7 +964,7 @@ async def test_browser_verify_value(mock_proxy_client):
 
 
 @pytest.mark.asyncio
-async def test_browser_network_requests(mock_proxy_client):
+async def test_browser_network_requests(mock_pool_manager, mock_proxy_client):
     """Test browser_network_requests tool."""
     from playwright_proxy_mcp import server
 
@@ -989,7 +974,7 @@ async def test_browser_network_requests(mock_proxy_client):
         ]
     }
 
-    with patch.object(server, "proxy_client", mock_proxy_client):
+    with patch.object(server, "pool_manager", mock_pool_manager):
         result = await server.browser_network_requests.fn(includeStatic=True)
 
         # Verify the result
@@ -1008,7 +993,7 @@ async def test_browser_network_requests(mock_proxy_client):
 
 
 @pytest.mark.asyncio
-async def test_browser_tabs_list(mock_proxy_client):
+async def test_browser_tabs_list(mock_pool_manager, mock_proxy_client):
     """Test browser_tabs with list action."""
     from playwright_proxy_mcp import server
 
@@ -1018,7 +1003,7 @@ async def test_browser_tabs_list(mock_proxy_client):
         ]
     }
 
-    with patch.object(server, "proxy_client", mock_proxy_client):
+    with patch.object(server, "pool_manager", mock_pool_manager):
         result = await server.browser_tabs.fn(action="list")
 
         # Verify the result
@@ -1032,13 +1017,13 @@ async def test_browser_tabs_list(mock_proxy_client):
 
 
 @pytest.mark.asyncio
-async def test_browser_tabs_new(mock_proxy_client):
+async def test_browser_tabs_new(mock_pool_manager, mock_proxy_client):
     """Test browser_tabs with new action."""
     from playwright_proxy_mcp import server
 
     mock_proxy_client.call_tool.return_value = {"status": "created"}
 
-    with patch.object(server, "proxy_client", mock_proxy_client):
+    with patch.object(server, "pool_manager", mock_pool_manager):
         result = await server.browser_tabs.fn(action="new")
 
         # Verify the proxy client was called
@@ -1049,13 +1034,13 @@ async def test_browser_tabs_new(mock_proxy_client):
 
 
 @pytest.mark.asyncio
-async def test_browser_tabs_close_with_index(mock_proxy_client):
+async def test_browser_tabs_close_with_index(mock_pool_manager, mock_proxy_client):
     """Test browser_tabs with close action and index."""
     from playwright_proxy_mcp import server
 
     mock_proxy_client.call_tool.return_value = {"status": "closed"}
 
-    with patch.object(server, "proxy_client", mock_proxy_client):
+    with patch.object(server, "pool_manager", mock_pool_manager):
         result = await server.browser_tabs.fn(action="close", index=1)
 
         # Verify the proxy client was called
@@ -1071,7 +1056,7 @@ async def test_browser_tabs_close_with_index(mock_proxy_client):
 
 
 @pytest.mark.asyncio
-async def test_browser_console_messages(mock_proxy_client):
+async def test_browser_console_messages(mock_pool_manager, mock_proxy_client):
     """Test browser_console_messages tool."""
     from playwright_proxy_mcp import server
 
@@ -1081,7 +1066,7 @@ async def test_browser_console_messages(mock_proxy_client):
         ]
     }
 
-    with patch.object(server, "proxy_client", mock_proxy_client):
+    with patch.object(server, "pool_manager", mock_pool_manager):
         result = await server.browser_console_messages.fn(level="info")
 
         # Verify the result
@@ -1100,13 +1085,13 @@ async def test_browser_console_messages(mock_proxy_client):
 
 
 @pytest.mark.asyncio
-async def test_browser_handle_dialog_accept(mock_proxy_client):
+async def test_browser_handle_dialog_accept(mock_pool_manager, mock_proxy_client):
     """Test browser_handle_dialog with accept."""
     from playwright_proxy_mcp import server
 
     mock_proxy_client.call_tool.return_value = {"status": "accepted"}
 
-    with patch.object(server, "proxy_client", mock_proxy_client):
+    with patch.object(server, "pool_manager", mock_pool_manager):
         result = await server.browser_handle_dialog.fn(accept=True)
 
         # Verify the result
@@ -1120,13 +1105,13 @@ async def test_browser_handle_dialog_accept(mock_proxy_client):
 
 
 @pytest.mark.asyncio
-async def test_browser_handle_dialog_with_prompt(mock_proxy_client):
+async def test_browser_handle_dialog_with_prompt(mock_pool_manager, mock_proxy_client):
     """Test browser_handle_dialog with prompt text."""
     from playwright_proxy_mcp import server
 
     mock_proxy_client.call_tool.return_value = {"status": "accepted"}
 
-    with patch.object(server, "proxy_client", mock_proxy_client):
+    with patch.object(server, "pool_manager", mock_pool_manager):
         result = await server.browser_handle_dialog.fn(
             accept=True,
             promptText="test input"
@@ -1145,13 +1130,13 @@ async def test_browser_handle_dialog_with_prompt(mock_proxy_client):
 
 
 @pytest.mark.asyncio
-async def test_browser_file_upload(mock_proxy_client):
+async def test_browser_file_upload(mock_pool_manager, mock_proxy_client):
     """Test browser_file_upload tool."""
     from playwright_proxy_mcp import server
 
     mock_proxy_client.call_tool.return_value = {"status": "uploaded"}
 
-    with patch.object(server, "proxy_client", mock_proxy_client):
+    with patch.object(server, "pool_manager", mock_pool_manager):
         result = await server.browser_file_upload.fn(
             paths=["/path/to/file1.txt", "/path/to/file2.txt"]
         )
@@ -1167,13 +1152,13 @@ async def test_browser_file_upload(mock_proxy_client):
 
 
 @pytest.mark.asyncio
-async def test_browser_file_upload_cancel(mock_proxy_client):
+async def test_browser_file_upload_cancel(mock_pool_manager, mock_proxy_client):
     """Test browser_file_upload without paths (cancel)."""
     from playwright_proxy_mcp import server
 
     mock_proxy_client.call_tool.return_value = {"status": "cancelled"}
 
-    with patch.object(server, "proxy_client", mock_proxy_client):
+    with patch.object(server, "pool_manager", mock_pool_manager):
         result = await server.browser_file_upload.fn()
 
         # Verify the proxy client was called
@@ -1189,13 +1174,13 @@ async def test_browser_file_upload_cancel(mock_proxy_client):
 
 
 @pytest.mark.asyncio
-async def test_browser_start_tracing(mock_proxy_client):
+async def test_browser_start_tracing(mock_pool_manager, mock_proxy_client):
     """Test browser_start_tracing tool."""
     from playwright_proxy_mcp import server
 
     mock_proxy_client.call_tool.return_value = {"status": "tracing started"}
 
-    with patch.object(server, "proxy_client", mock_proxy_client):
+    with patch.object(server, "pool_manager", mock_pool_manager):
         result = await server.browser_start_tracing.fn()
 
         # Verify the result
@@ -1209,13 +1194,13 @@ async def test_browser_start_tracing(mock_proxy_client):
 
 
 @pytest.mark.asyncio
-async def test_browser_stop_tracing(mock_proxy_client):
+async def test_browser_stop_tracing(mock_pool_manager, mock_proxy_client):
     """Test browser_stop_tracing tool."""
     from playwright_proxy_mcp import server
 
     mock_proxy_client.call_tool.return_value = {"status": "tracing stopped"}
 
-    with patch.object(server, "proxy_client", mock_proxy_client):
+    with patch.object(server, "pool_manager", mock_pool_manager):
         result = await server.browser_stop_tracing.fn()
 
         # Verify the result
@@ -1234,13 +1219,13 @@ async def test_browser_stop_tracing(mock_proxy_client):
 
 
 @pytest.mark.asyncio
-async def test_browser_install(mock_proxy_client):
+async def test_browser_install(mock_pool_manager, mock_proxy_client):
     """Test browser_install tool."""
     from playwright_proxy_mcp import server
 
     mock_proxy_client.call_tool.return_value = {"status": "installed"}
 
-    with patch.object(server, "proxy_client", mock_proxy_client):
+    with patch.object(server, "pool_manager", mock_pool_manager):
         result = await server.browser_install.fn()
 
         # Verify the result
@@ -1259,13 +1244,13 @@ async def test_browser_install(mock_proxy_client):
 
 
 @pytest.mark.asyncio
-async def test_browser_mouse_move_xy(mock_proxy_client):
+async def test_browser_mouse_move_xy(mock_pool_manager, mock_proxy_client):
     """Test browser_mouse_move_xy tool."""
     from playwright_proxy_mcp import server
 
     mock_proxy_client.call_tool.return_value = {"status": "moved"}
 
-    with patch.object(server, "proxy_client", mock_proxy_client):
+    with patch.object(server, "pool_manager", mock_pool_manager):
         result = await server.browser_mouse_move_xy.fn(
             element="Canvas",
             x=100.5,
@@ -1283,13 +1268,13 @@ async def test_browser_mouse_move_xy(mock_proxy_client):
 
 
 @pytest.mark.asyncio
-async def test_browser_mouse_click_xy(mock_proxy_client):
+async def test_browser_mouse_click_xy(mock_pool_manager, mock_proxy_client):
     """Test browser_mouse_click_xy tool."""
     from playwright_proxy_mcp import server
 
     mock_proxy_client.call_tool.return_value = {"status": "clicked"}
 
-    with patch.object(server, "proxy_client", mock_proxy_client):
+    with patch.object(server, "pool_manager", mock_pool_manager):
         result = await server.browser_mouse_click_xy.fn(
             element="Canvas",
             x=150.0,
@@ -1307,13 +1292,13 @@ async def test_browser_mouse_click_xy(mock_proxy_client):
 
 
 @pytest.mark.asyncio
-async def test_browser_mouse_drag_xy(mock_proxy_client):
+async def test_browser_mouse_drag_xy(mock_pool_manager, mock_proxy_client):
     """Test browser_mouse_drag_xy tool."""
     from playwright_proxy_mcp import server
 
     mock_proxy_client.call_tool.return_value = {"status": "dragged"}
 
-    with patch.object(server, "proxy_client", mock_proxy_client):
+    with patch.object(server, "pool_manager", mock_pool_manager):
         result = await server.browser_mouse_drag_xy.fn(
             element="Canvas",
             startX=100.0,
