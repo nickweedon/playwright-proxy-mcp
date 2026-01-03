@@ -2,33 +2,43 @@
 Tests for configuration loading
 """
 
-from playwright_proxy_mcp.playwright.config import load_blob_config, load_playwright_config
+from playwright_proxy_mcp.playwright.config import load_blob_config, load_pool_manager_config
 
 
 class TestPlaywrightConfig:
     """Tests for Playwright configuration."""
 
-    def test_load_default_config(self):
+    def test_load_default_config(self, monkeypatch):
         """Test loading default configuration."""
-        config = load_playwright_config()
+        # Set up a minimal pool configuration
+        monkeypatch.setenv("PW_MCP_PROXY__DEFAULT_INSTANCES", "1")
+        monkeypatch.setenv("PW_MCP_PROXY__DEFAULT_IS_DEFAULT", "true")
 
-        assert config["browser"] == "chromium"
-        assert config["headless"] is False  # Default changed to False
-        assert config["caps"] == "vision,pdf"
-        assert config["timeout_action"] == 15000  # Updated default
-        assert config["timeout_navigation"] == 5000  # Updated default
+        pool_config = load_pool_manager_config()
+
+        # Check global defaults
+        assert pool_config["global_config"]["browser"] == "chromium"
+        assert pool_config["global_config"]["headless"] is False
+        assert pool_config["global_config"]["caps"] == "vision,pdf"
+        assert pool_config["global_config"]["timeout_action"] == 15000
+        assert pool_config["global_config"]["timeout_navigation"] == 5000
 
     def test_load_config_from_env(self, monkeypatch):
         """Test loading configuration from environment variables."""
-        monkeypatch.setenv("PLAYWRIGHT_BROWSER", "firefox")
-        monkeypatch.setenv("PLAYWRIGHT_HEADLESS", "false")
-        monkeypatch.setenv("PLAYWRIGHT_TIMEOUT_ACTION", "10000")
+        # Set global config
+        monkeypatch.setenv("PW_MCP_PROXY_BROWSER", "firefox")
+        monkeypatch.setenv("PW_MCP_PROXY_HEADLESS", "false")
+        monkeypatch.setenv("PW_MCP_PROXY_TIMEOUT_ACTION", "10000")
 
-        config = load_playwright_config()
+        # Set up pool
+        monkeypatch.setenv("PW_MCP_PROXY__DEFAULT_INSTANCES", "1")
+        monkeypatch.setenv("PW_MCP_PROXY__DEFAULT_IS_DEFAULT", "true")
 
-        assert config["browser"] == "firefox"
-        assert config["headless"] is False
-        assert config["timeout_action"] == 10000
+        pool_config = load_pool_manager_config()
+
+        assert pool_config["global_config"]["browser"] == "firefox"
+        assert pool_config["global_config"]["headless"] is False
+        assert pool_config["global_config"]["timeout_action"] == 10000
 
 
 class TestBlobConfig:

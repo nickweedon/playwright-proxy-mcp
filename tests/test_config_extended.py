@@ -2,7 +2,7 @@
 Extended tests for configuration loading
 """
 
-from playwright_proxy_mcp.playwright.config import load_blob_config, load_playwright_config
+from playwright_proxy_mcp.playwright.config import load_blob_config, load_pool_manager_config
 
 
 class TestConfigEdgeCases:
@@ -10,26 +10,31 @@ class TestConfigEdgeCases:
 
     def test_load_playwright_config_with_all_env_vars(self, monkeypatch):
         """Test loading all playwright config from environment."""
-        monkeypatch.setenv("PLAYWRIGHT_BROWSER", "webkit")
-        monkeypatch.setenv("PLAYWRIGHT_HEADLESS", "true")
-        monkeypatch.setenv("PLAYWRIGHT_DEVICE", "iPhone 12")
-        monkeypatch.setenv("PLAYWRIGHT_VIEWPORT_SIZE", "1920x1080")
-        monkeypatch.setenv("PLAYWRIGHT_ISOLATED", "true")
-        monkeypatch.setenv("PLAYWRIGHT_USER_DATA_DIR", "/path/to/data")
-        monkeypatch.setenv("PLAYWRIGHT_STORAGE_STATE", "/path/to/state.json")
-        monkeypatch.setenv("PLAYWRIGHT_ALLOWED_ORIGINS", "example.com")
-        monkeypatch.setenv("PLAYWRIGHT_BLOCKED_ORIGINS", "ads.com")
-        monkeypatch.setenv("PLAYWRIGHT_PROXY_SERVER", "proxy.com:8080")
-        monkeypatch.setenv("PLAYWRIGHT_CAPS", "vision")
-        monkeypatch.setenv("PLAYWRIGHT_SAVE_SESSION", "true")
-        monkeypatch.setenv("PLAYWRIGHT_SAVE_TRACE", "true")
-        monkeypatch.setenv("PLAYWRIGHT_SAVE_VIDEO", "on-failure")
-        monkeypatch.setenv("PLAYWRIGHT_OUTPUT_DIR", "/output")
-        monkeypatch.setenv("PLAYWRIGHT_TIMEOUT_ACTION", "15000")
-        monkeypatch.setenv("PLAYWRIGHT_TIMEOUT_NAVIGATION", "90000")
-        monkeypatch.setenv("PLAYWRIGHT_IMAGE_RESPONSES", "base64")
+        monkeypatch.setenv("PW_MCP_PROXY_BROWSER", "webkit")
+        monkeypatch.setenv("PW_MCP_PROXY_HEADLESS", "true")
+        monkeypatch.setenv("PW_MCP_PROXY_DEVICE", "iPhone 12")
+        monkeypatch.setenv("PW_MCP_PROXY_VIEWPORT_SIZE", "1920x1080")
+        monkeypatch.setenv("PW_MCP_PROXY_ISOLATED", "true")
+        monkeypatch.setenv("PW_MCP_PROXY_USER_DATA_DIR", "/path/to/data")
+        monkeypatch.setenv("PW_MCP_PROXY_STORAGE_STATE", "/path/to/state.json")
+        monkeypatch.setenv("PW_MCP_PROXY_ALLOWED_ORIGINS", "example.com")
+        monkeypatch.setenv("PW_MCP_PROXY_BLOCKED_ORIGINS", "ads.com")
+        monkeypatch.setenv("PW_MCP_PROXY_PROXY_SERVER", "proxy.com:8080")
+        monkeypatch.setenv("PW_MCP_PROXY_CAPS", "vision")
+        monkeypatch.setenv("PW_MCP_PROXY_SAVE_SESSION", "true")
+        monkeypatch.setenv("PW_MCP_PROXY_SAVE_TRACE", "true")
+        monkeypatch.setenv("PW_MCP_PROXY_SAVE_VIDEO", "on-failure")
+        monkeypatch.setenv("PW_MCP_PROXY_OUTPUT_DIR", "/output")
+        monkeypatch.setenv("PW_MCP_PROXY_TIMEOUT_ACTION", "15000")
+        monkeypatch.setenv("PW_MCP_PROXY_TIMEOUT_NAVIGATION", "90000")
+        monkeypatch.setenv("PW_MCP_PROXY_IMAGE_RESPONSES", "base64")
 
-        config = load_playwright_config()
+        # Set up pool
+        monkeypatch.setenv("PW_MCP_PROXY__DEFAULT_INSTANCES", "1")
+        monkeypatch.setenv("PW_MCP_PROXY__DEFAULT_IS_DEFAULT", "true")
+
+        pool_config = load_pool_manager_config()
+        config = pool_config["global_config"]
 
         assert config["browser"] == "webkit"
         assert config["headless"] is True
@@ -68,40 +73,58 @@ class TestConfigEdgeCases:
 
     def test_playwright_headless_string_true(self, monkeypatch):
         """Test that string 'true' is converted to boolean True."""
-        monkeypatch.setenv("PLAYWRIGHT_HEADLESS", "true")
-        config = load_playwright_config()
-        assert config["headless"] is True
+        monkeypatch.setenv("PW_MCP_PROXY_HEADLESS", "true")
+        monkeypatch.setenv("PW_MCP_PROXY__DEFAULT_INSTANCES", "1")
+        monkeypatch.setenv("PW_MCP_PROXY__DEFAULT_IS_DEFAULT", "true")
+
+        pool_config = load_pool_manager_config()
+        assert pool_config["global_config"]["headless"] is True
 
     def test_playwright_headless_string_false(self, monkeypatch):
         """Test that string 'false' is converted to boolean False."""
-        monkeypatch.setenv("PLAYWRIGHT_HEADLESS", "false")
-        config = load_playwright_config()
-        assert config["headless"] is False
+        monkeypatch.setenv("PW_MCP_PROXY_HEADLESS", "false")
+        monkeypatch.setenv("PW_MCP_PROXY__DEFAULT_INSTANCES", "1")
+        monkeypatch.setenv("PW_MCP_PROXY__DEFAULT_IS_DEFAULT", "true")
+
+        pool_config = load_pool_manager_config()
+        assert pool_config["global_config"]["headless"] is False
 
     def test_playwright_isolated_string(self, monkeypatch):
         """Test that isolated is converted to boolean."""
-        monkeypatch.setenv("PLAYWRIGHT_ISOLATED", "true")
-        config = load_playwright_config()
-        assert config["isolated"] is True
+        monkeypatch.setenv("PW_MCP_PROXY_ISOLATED", "true")
+        monkeypatch.setenv("PW_MCP_PROXY__DEFAULT_INSTANCES", "1")
+        monkeypatch.setenv("PW_MCP_PROXY__DEFAULT_IS_DEFAULT", "true")
+
+        pool_config = load_pool_manager_config()
+        assert pool_config["global_config"]["isolated"] is True
 
     def test_playwright_save_session_string(self, monkeypatch):
         """Test that save_session is converted to boolean."""
-        monkeypatch.setenv("PLAYWRIGHT_SAVE_SESSION", "true")
-        config = load_playwright_config()
-        assert config["save_session"] is True
+        monkeypatch.setenv("PW_MCP_PROXY_SAVE_SESSION", "true")
+        monkeypatch.setenv("PW_MCP_PROXY__DEFAULT_INSTANCES", "1")
+        monkeypatch.setenv("PW_MCP_PROXY__DEFAULT_IS_DEFAULT", "true")
+
+        pool_config = load_pool_manager_config()
+        assert pool_config["global_config"]["save_session"] is True
 
     def test_playwright_save_trace_string(self, monkeypatch):
         """Test that save_trace is converted to boolean."""
-        monkeypatch.setenv("PLAYWRIGHT_SAVE_TRACE", "true")
-        config = load_playwright_config()
-        assert config["save_trace"] is True
+        monkeypatch.setenv("PW_MCP_PROXY_SAVE_TRACE", "true")
+        monkeypatch.setenv("PW_MCP_PROXY__DEFAULT_INSTANCES", "1")
+        monkeypatch.setenv("PW_MCP_PROXY__DEFAULT_IS_DEFAULT", "true")
+
+        pool_config = load_pool_manager_config()
+        assert pool_config["global_config"]["save_trace"] is True
 
     def test_playwright_timeout_int_conversion(self, monkeypatch):
         """Test that timeout values are converted to integers."""
-        monkeypatch.setenv("PLAYWRIGHT_TIMEOUT_ACTION", "7500")
-        monkeypatch.setenv("PLAYWRIGHT_TIMEOUT_NAVIGATION", "45000")
+        monkeypatch.setenv("PW_MCP_PROXY_TIMEOUT_ACTION", "7500")
+        monkeypatch.setenv("PW_MCP_PROXY_TIMEOUT_NAVIGATION", "45000")
+        monkeypatch.setenv("PW_MCP_PROXY__DEFAULT_INSTANCES", "1")
+        monkeypatch.setenv("PW_MCP_PROXY__DEFAULT_IS_DEFAULT", "true")
 
-        config = load_playwright_config()
+        pool_config = load_pool_manager_config()
+        config = pool_config["global_config"]
 
         assert isinstance(config["timeout_action"], int)
         assert config["timeout_action"] == 7500

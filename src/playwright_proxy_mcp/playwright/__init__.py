@@ -14,7 +14,6 @@ from .config import (
     PlaywrightConfig,
     PoolManagerConfig,
     load_blob_config,
-    load_playwright_config,
     load_pool_manager_config,
 )
 from .middleware import BinaryInterceptionMiddleware
@@ -28,7 +27,6 @@ __all__ = [
     "PlaywrightConfig",
     "PoolManagerConfig",
     "load_blob_config",
-    "load_playwright_config",
     "load_pool_manager_config",
     "BinaryInterceptionMiddleware",
     "PoolManager",

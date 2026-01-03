@@ -39,9 +39,8 @@ Created a comprehensive JavaScript initialization script with 19 anti-detection 
 
 #### [config.py](src/playwright_proxy_mcp/playwright/config.py)
 - Added `user_agent`, `init_script`, and `ignore_https_errors` to `PlaywrightConfig` TypedDict
-- Updated `load_playwright_config()` to load stealth environment variables
-- Auto-loads bundled `stealth.js` when `PLAYWRIGHT_STEALTH_MODE=true`
-- Allows custom init scripts via `PLAYWRIGHT_INIT_SCRIPT`
+- These settings are now configured via `PW_MCP_PROXY_*` environment variables in `_parse_global_config()`
+- Note: Old `PLAYWRIGHT_*` env vars are no longer supported (use `PW_MCP_PROXY_*` instead)
 
 #### [process_manager.py](src/playwright_proxy_mcp/playwright/process_manager.py)
 - Updated `_build_command()` to pass stealth options to playwright-mcp subprocess

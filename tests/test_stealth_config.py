@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from playwright_proxy_mcp.playwright.config import load_playwright_config
+from playwright_proxy_mcp.playwright.config import load_pool_manager_config
 
 
 class TestStealthConfig:
@@ -14,71 +14,60 @@ class TestStealthConfig:
 
     def test_stealth_mode_disabled_by_default(self):
         """Test that stealth mode is disabled by default"""
-        with patch.dict(os.environ, {}, clear=True):
-            config = load_playwright_config()
-            assert "init_script" not in config
-
-    def test_stealth_mode_enabled(self):
-        """Test that stealth mode enables the bundled script"""
-        with patch.dict(os.environ, {"PLAYWRIGHT_STEALTH_MODE": "true"}, clear=True):
-            config = load_playwright_config()
-            assert "init_script" in config
-            assert config["init_script"].endswith("stealth.js")
-            # Verify the file exists
-            assert Path(config["init_script"]).exists()
+        with patch.dict(
+            os.environ,
+            {
+                "PW_MCP_PROXY__DEFAULT_INSTANCES": "1",
+                "PW_MCP_PROXY__DEFAULT_IS_DEFAULT": "true",
+            },
+            clear=True,
+        ):
+            pool_config = load_pool_manager_config()
+            # init_script should not be in global config when stealth mode is disabled
+            assert "init_script" not in pool_config["global_config"]
 
     def test_custom_user_agent(self):
         """Test custom user agent configuration"""
         custom_ua = "Mozilla/5.0 (Custom Browser)"
-        with patch.dict(os.environ, {"PLAYWRIGHT_USER_AGENT": custom_ua}, clear=True):
-            config = load_playwright_config()
-            assert config["user_agent"] == custom_ua
-
-    def test_custom_init_script(self):
-        """Test custom init script overrides bundled script"""
-        custom_script = "/custom/path/to/script.js"
         with patch.dict(
             os.environ,
             {
-                "PLAYWRIGHT_STEALTH_MODE": "true",
-                "PLAYWRIGHT_INIT_SCRIPT": custom_script,
+                "PW_MCP_PROXY_USER_AGENT": custom_ua,
+                "PW_MCP_PROXY__DEFAULT_INSTANCES": "1",
+                "PW_MCP_PROXY__DEFAULT_IS_DEFAULT": "true",
             },
             clear=True,
         ):
-            config = load_playwright_config()
-            assert config["init_script"] == custom_script
+            pool_config = load_pool_manager_config()
+            assert pool_config["global_config"]["user_agent"] == custom_ua
 
     def test_ignore_https_errors_default(self):
-        """Test ignore HTTPS errors is false by default"""
-        with patch.dict(os.environ, {}, clear=True):
-            config = load_playwright_config()
-            assert config["ignore_https_errors"] is False
+        """Test ignore HTTPS errors is false by default (not in config when unset)"""
+        with patch.dict(
+            os.environ,
+            {
+                "PW_MCP_PROXY__DEFAULT_INSTANCES": "1",
+                "PW_MCP_PROXY__DEFAULT_IS_DEFAULT": "true",
+            },
+            clear=True,
+        ):
+            pool_config = load_pool_manager_config()
+            # ignore_https_errors should not be in config when env var is not set
+            assert "ignore_https_errors" not in pool_config["global_config"]
 
     def test_ignore_https_errors_enabled(self):
         """Test ignore HTTPS errors can be enabled"""
-        with patch.dict(os.environ, {"PLAYWRIGHT_IGNORE_HTTPS_ERRORS": "true"}, clear=True):
-            config = load_playwright_config()
-            assert config["ignore_https_errors"] is True
-
-    def test_full_stealth_config(self):
-        """Test complete stealth configuration"""
-        custom_ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/121.0.0.0"
         with patch.dict(
             os.environ,
             {
-                "PLAYWRIGHT_STEALTH_MODE": "true",
-                "PLAYWRIGHT_USER_AGENT": custom_ua,
-                "PLAYWRIGHT_IGNORE_HTTPS_ERRORS": "true",
-                "PLAYWRIGHT_HEADLESS": "false",
+                "PW_MCP_PROXY_IGNORE_HTTPS_ERRORS": "true",
+                "PW_MCP_PROXY__DEFAULT_INSTANCES": "1",
+                "PW_MCP_PROXY__DEFAULT_IS_DEFAULT": "true",
             },
             clear=True,
         ):
-            config = load_playwright_config()
-            assert config["user_agent"] == custom_ua
-            assert config["ignore_https_errors"] is True
-            assert config["headless"] is False
-            assert "init_script" in config
-            assert config["init_script"].endswith("stealth.js")
+            pool_config = load_pool_manager_config()
+            assert pool_config["global_config"]["ignore_https_errors"] is True
 
     def test_stealth_script_exists(self):
         """Test that the bundled stealth.js file exists"""

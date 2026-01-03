@@ -12,7 +12,6 @@ from unittest.mock import Mock, patch
 import pytest
 
 from playwright_proxy_mcp.playwright.blob_manager import PlaywrightBlobManager
-from playwright_proxy_mcp.playwright.config import load_playwright_config
 from playwright_proxy_mcp.playwright.middleware import BinaryInterceptionMiddleware
 
 
@@ -87,20 +86,24 @@ class TestIntegrationWorkflows:
         assert result == response_with_none
 
     @pytest.mark.asyncio
-    async def test_config_integration(self):
+    async def test_config_integration(self, monkeypatch):
         """Test configuration loading integration."""
         from playwright_proxy_mcp.playwright.config import (
             load_blob_config,
-            load_playwright_config,
+            load_pool_manager_config,
         )
 
+        # Set up minimal pool configuration
+        monkeypatch.setenv("PW_MCP_PROXY__DEFAULT_INSTANCES", "1")
+        monkeypatch.setenv("PW_MCP_PROXY__DEFAULT_IS_DEFAULT", "true")
+
         # Test that configs load without errors
-        pw_config = load_playwright_config()
+        pool_config = load_pool_manager_config()
         blob_config = load_blob_config()
 
         # Verify required keys exist
-        assert "browser" in pw_config
-        assert "headless" in pw_config
+        assert "browser" in pool_config["global_config"]
+        assert "headless" in pool_config["global_config"]
         assert "storage_root" in blob_config
         assert "max_size_mb" in blob_config
 

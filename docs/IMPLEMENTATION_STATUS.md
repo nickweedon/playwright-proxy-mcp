@@ -20,9 +20,9 @@
   - Implemented `_validate_pool_config()` for duplicate alias checking
   - Implemented `load_pool_manager_config()` as main entry point
   - Updated `should_use_windows_node()` to check both old and new env vars
-  - Kept `load_playwright_config()` for backward compatibility
+  - **REMOVED** `load_playwright_config()` - deprecated PLAYWRIGHT_* env vars no longer supported
 - **Status**: Complete
-- **Tested**: Yes - 23/23 tests passing
+- **Tested**: Yes - All config tests updated to use PW_MCP_PROXY_* env vars
 - **Test File**: `tests/test_pool_config.py`
 
 ### 3. Pool Manager ✅
@@ -55,17 +55,6 @@ pool_manager = None
 
 #### 4.2 Lifespan Context (lines ~51-110)
 ```python
-# OLD:
-async def lifespan_context(server):
-    global middleware, proxy_client, navigation_cache
-
-    # Load config
-    playwright_config = load_playwright_config()
-
-    # Initialize proxy_client
-    proxy_client = PlaywrightProxyClient(...)
-    await proxy_client.start(playwright_config)
-
 # NEW:
 async def lifespan_context(server):
     global middleware, pool_manager, navigation_cache

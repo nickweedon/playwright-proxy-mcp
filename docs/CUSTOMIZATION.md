@@ -131,14 +131,17 @@ class PlaywrightConfig(TypedDict, total=False):
     custom_option: str  # Add your option
 ```
 
-2. Update `load_playwright_config()`:
+2. Update `_parse_global_config()` in `config.py`:
 
 ```python
-def load_playwright_config() -> PlaywrightConfig:
-    config: PlaywrightConfig = {
-        # ... existing config ...
-        "custom_option": os.getenv("PLAYWRIGHT_CUSTOM_OPTION", "default"),
-    }
+def _parse_global_config() -> PlaywrightConfig:
+    config: PlaywrightConfig = {}
+    # ... existing config parsing ...
+
+    # Add your custom option
+    if custom_option := os.getenv("PW_MCP_PROXY_CUSTOM_OPTION"):
+        config["custom_option"] = custom_option
+
     return config
 ```
 
@@ -275,7 +278,11 @@ docker compose up -d
 Check loaded configuration:
 
 ```bash
-uv run python -c "from playwright_proxy_mcp.playwright.config import load_playwright_config, load_blob_config; import json; print(json.dumps(load_playwright_config(), indent=2))"
+# Check global configuration
+uv run python -c "from playwright_proxy_mcp.playwright.config import load_pool_manager_config, load_blob_config; import json; import os; os.environ['PW_MCP_PROXY__DEFAULT_INSTANCES']='1'; os.environ['PW_MCP_PROXY__DEFAULT_IS_DEFAULT']='true'; config = load_pool_manager_config(); print(json.dumps(config['global_config'], indent=2))"
+
+# Check blob configuration
+uv run python -c "from playwright_proxy_mcp.playwright.config import load_blob_config; import json; print(json.dumps(load_blob_config(), indent=2))"
 ```
 
 ## Best Practices
