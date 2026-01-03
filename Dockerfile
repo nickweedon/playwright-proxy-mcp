@@ -140,14 +140,17 @@ CMD ["playwright-proxy-mcp"]
 # Stage 5: Development stage with all files and additional tools
 FROM python:${PYTHON_VERSION}-slim AS development
 
-# Install system dependencies
+# Install system dependencies including Java for PMD and wget for downloading tools
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     curl \
+    wget \
+    unzip \
     ca-certificates \
     sudo \
     gnupg \
     lsb-release \
+    default-jre \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Docker CLI for Docker-outside-of-Docker (DooD) support
@@ -180,6 +183,14 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
 
 # Install Claude Code CLI globally
 RUN npm install -g @anthropic-ai/claude-code
+
+# Install PMD for code duplication detection
+ARG PMD_VERSION=7.10.0
+RUN wget -q "https://github.com/pmd/pmd/releases/download/pmd_releases%2F${PMD_VERSION}/pmd-dist-${PMD_VERSION}-bin.zip" -O /tmp/pmd.zip && \
+    unzip -q /tmp/pmd.zip -d /opt && \
+    mv /opt/pmd-bin-${PMD_VERSION} /opt/pmd && \
+    ln -s /opt/pmd/bin/pmd /usr/local/bin/pmd && \
+    rm /tmp/pmd.zip
 
 # Install uv package manager for root
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv

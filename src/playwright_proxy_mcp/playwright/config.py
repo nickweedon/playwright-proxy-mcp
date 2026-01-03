@@ -139,6 +139,87 @@ def _get_int_env(key: str, default: int) -> int:
         return default
 
 
+def _apply_config_overrides(config: PlaywrightConfig, prefix: str) -> None:
+    """
+    Apply configuration overrides from environment variables with given prefix.
+
+    This helper reduces code duplication across global, pool, and instance config parsing.
+
+    Args:
+        config: Config dict to update in-place
+        prefix: Environment variable prefix (e.g., "PW_MCP_PROXY_" or "PW_MCP_PROXY__POOL_")
+    """
+    # Browser settings
+    if browser := os.getenv(f"{prefix}BROWSER"):
+        config["browser"] = browser
+    if os.getenv(f"{prefix}HEADLESS"):
+        config["headless"] = _get_bool_env(f"{prefix}HEADLESS", False)
+    if os.getenv(f"{prefix}NO_SANDBOX"):
+        config["no_sandbox"] = _get_bool_env(f"{prefix}NO_SANDBOX", False)
+    if device := os.getenv(f"{prefix}DEVICE"):
+        config["device"] = device
+    if viewport_size := os.getenv(f"{prefix}VIEWPORT_SIZE"):
+        config["viewport_size"] = viewport_size
+
+    # Profile/storage
+    if os.getenv(f"{prefix}ISOLATED"):
+        config["isolated"] = _get_bool_env(f"{prefix}ISOLATED", False)
+    if user_data_dir := os.getenv(f"{prefix}USER_DATA_DIR"):
+        config["user_data_dir"] = user_data_dir
+    if storage_state := os.getenv(f"{prefix}STORAGE_STATE"):
+        config["storage_state"] = storage_state
+
+    # Network
+    if allowed_origins := os.getenv(f"{prefix}ALLOWED_ORIGINS"):
+        config["allowed_origins"] = allowed_origins
+    if blocked_origins := os.getenv(f"{prefix}BLOCKED_ORIGINS"):
+        config["blocked_origins"] = blocked_origins
+    if proxy_server := os.getenv(f"{prefix}PROXY_SERVER"):
+        config["proxy_server"] = proxy_server
+
+    # Capabilities
+    if caps := os.getenv(f"{prefix}CAPS"):
+        config["caps"] = caps
+
+    # Output
+    if os.getenv(f"{prefix}SAVE_SESSION"):
+        config["save_session"] = _get_bool_env(f"{prefix}SAVE_SESSION", False)
+    if os.getenv(f"{prefix}SAVE_TRACE"):
+        config["save_trace"] = _get_bool_env(f"{prefix}SAVE_TRACE", False)
+    if save_video := os.getenv(f"{prefix}SAVE_VIDEO"):
+        config["save_video"] = save_video
+    if output_dir := os.getenv(f"{prefix}OUTPUT_DIR"):
+        config["output_dir"] = output_dir
+
+    # Timeouts
+    if os.getenv(f"{prefix}TIMEOUT_ACTION"):
+        config["timeout_action"] = _get_int_env(f"{prefix}TIMEOUT_ACTION", 15000)
+    if os.getenv(f"{prefix}TIMEOUT_NAVIGATION"):
+        config["timeout_navigation"] = _get_int_env(f"{prefix}TIMEOUT_NAVIGATION", 5000)
+
+    # Images
+    if image_responses := os.getenv(f"{prefix}IMAGE_RESPONSES"):
+        config["image_responses"] = image_responses
+
+    # Stealth
+    if user_agent := os.getenv(f"{prefix}USER_AGENT"):
+        config["user_agent"] = user_agent
+    if init_script := os.getenv(f"{prefix}INIT_SCRIPT"):
+        config["init_script"] = init_script
+    if os.getenv(f"{prefix}IGNORE_HTTPS_ERRORS"):
+        config["ignore_https_errors"] = _get_bool_env(f"{prefix}IGNORE_HTTPS_ERRORS", False)
+
+    # Extension
+    if os.getenv(f"{prefix}EXTENSION"):
+        config["extension"] = _get_bool_env(f"{prefix}EXTENSION", False)
+    if extension_token := os.getenv(f"{prefix}EXTENSION_TOKEN"):
+        config["extension_token"] = extension_token
+
+    # WSL Windows
+    if os.getenv(f"{prefix}WSL_WINDOWS"):
+        config["wsl_windows"] = _get_bool_env(f"{prefix}WSL_WINDOWS", False)
+
+
 def should_use_windows_node() -> bool:
     """
     Check if we should use Windows Node.js from WSL.
@@ -156,77 +237,7 @@ def _parse_global_config() -> PlaywrightConfig:
     These apply to all pools/instances unless overridden.
     """
     config: PlaywrightConfig = {}
-
-    # Browser settings
-    if browser := os.getenv("PW_MCP_PROXY_BROWSER"):
-        config["browser"] = browser
-    if os.getenv("PW_MCP_PROXY_HEADLESS"):
-        config["headless"] = _get_bool_env("PW_MCP_PROXY_HEADLESS", False)
-    if os.getenv("PW_MCP_PROXY_NO_SANDBOX"):
-        config["no_sandbox"] = _get_bool_env("PW_MCP_PROXY_NO_SANDBOX", False)
-    if device := os.getenv("PW_MCP_PROXY_DEVICE"):
-        config["device"] = device
-    if viewport_size := os.getenv("PW_MCP_PROXY_VIEWPORT_SIZE"):
-        config["viewport_size"] = viewport_size
-
-    # Profile/storage
-    if os.getenv("PW_MCP_PROXY_ISOLATED"):
-        config["isolated"] = _get_bool_env("PW_MCP_PROXY_ISOLATED", False)
-    if user_data_dir := os.getenv("PW_MCP_PROXY_USER_DATA_DIR"):
-        config["user_data_dir"] = user_data_dir
-    if storage_state := os.getenv("PW_MCP_PROXY_STORAGE_STATE"):
-        config["storage_state"] = storage_state
-
-    # Network
-    if allowed_origins := os.getenv("PW_MCP_PROXY_ALLOWED_ORIGINS"):
-        config["allowed_origins"] = allowed_origins
-    if blocked_origins := os.getenv("PW_MCP_PROXY_BLOCKED_ORIGINS"):
-        config["blocked_origins"] = blocked_origins
-    if proxy_server := os.getenv("PW_MCP_PROXY_PROXY_SERVER"):
-        config["proxy_server"] = proxy_server
-
-    # Capabilities
-    if caps := os.getenv("PW_MCP_PROXY_CAPS"):
-        config["caps"] = caps
-
-    # Output
-    if os.getenv("PW_MCP_PROXY_SAVE_SESSION"):
-        config["save_session"] = _get_bool_env("PW_MCP_PROXY_SAVE_SESSION", False)
-    if os.getenv("PW_MCP_PROXY_SAVE_TRACE"):
-        config["save_trace"] = _get_bool_env("PW_MCP_PROXY_SAVE_TRACE", False)
-    if save_video := os.getenv("PW_MCP_PROXY_SAVE_VIDEO"):
-        config["save_video"] = save_video
-    if output_dir := os.getenv("PW_MCP_PROXY_OUTPUT_DIR"):
-        config["output_dir"] = output_dir
-
-    # Timeouts
-    if os.getenv("PW_MCP_PROXY_TIMEOUT_ACTION"):
-        config["timeout_action"] = _get_int_env("PW_MCP_PROXY_TIMEOUT_ACTION", 15000)
-    if os.getenv("PW_MCP_PROXY_TIMEOUT_NAVIGATION"):
-        config["timeout_navigation"] = _get_int_env("PW_MCP_PROXY_TIMEOUT_NAVIGATION", 5000)
-
-    # Images
-    if image_responses := os.getenv("PW_MCP_PROXY_IMAGE_RESPONSES"):
-        config["image_responses"] = image_responses
-
-    # Stealth
-    if user_agent := os.getenv("PW_MCP_PROXY_USER_AGENT"):
-        config["user_agent"] = user_agent
-    if init_script := os.getenv("PW_MCP_PROXY_INIT_SCRIPT"):
-        config["init_script"] = init_script
-    if os.getenv("PW_MCP_PROXY_IGNORE_HTTPS_ERRORS"):
-        config["ignore_https_errors"] = _get_bool_env("PW_MCP_PROXY_IGNORE_HTTPS_ERRORS", False)
-
-    # Extension
-    if os.getenv("PW_MCP_PROXY_EXTENSION"):
-        config["extension"] = _get_bool_env("PW_MCP_PROXY_EXTENSION", False)
-    if extension_token := os.getenv("PW_MCP_PROXY_EXTENSION_TOKEN"):
-        config["extension_token"] = extension_token
-
-    # WSL Windows
-    if os.getenv("PW_MCP_PROXY_WSL_WINDOWS"):
-        config["wsl_windows"] = _get_bool_env("PW_MCP_PROXY_WSL_WINDOWS", False)
-
+    _apply_config_overrides(config, "PW_MCP_PROXY_")
     return config
 
 
@@ -288,60 +299,9 @@ def _parse_pool_config(pool_name: str, global_config: PlaywrightConfig) -> PoolC
     """
     prefix = f"PW_MCP_PROXY__{pool_name}_"
 
-    # Start with global config
+    # Start with global config and apply pool-specific overrides
     pool_config = global_config.copy()
-
-    # Pool-specific overrides
-    if browser := os.getenv(f"{prefix}BROWSER"):
-        pool_config["browser"] = browser
-    if os.getenv(f"{prefix}HEADLESS"):
-        pool_config["headless"] = _get_bool_env(f"{prefix}HEADLESS", False)
-    if os.getenv(f"{prefix}NO_SANDBOX"):
-        pool_config["no_sandbox"] = _get_bool_env(f"{prefix}NO_SANDBOX", False)
-    if device := os.getenv(f"{prefix}DEVICE"):
-        pool_config["device"] = device
-    if viewport_size := os.getenv(f"{prefix}VIEWPORT_SIZE"):
-        pool_config["viewport_size"] = viewport_size
-    if os.getenv(f"{prefix}ISOLATED"):
-        pool_config["isolated"] = _get_bool_env(f"{prefix}ISOLATED", False)
-    if user_data_dir := os.getenv(f"{prefix}USER_DATA_DIR"):
-        pool_config["user_data_dir"] = user_data_dir
-    if storage_state := os.getenv(f"{prefix}STORAGE_STATE"):
-        pool_config["storage_state"] = storage_state
-    if allowed_origins := os.getenv(f"{prefix}ALLOWED_ORIGINS"):
-        pool_config["allowed_origins"] = allowed_origins
-    if blocked_origins := os.getenv(f"{prefix}BLOCKED_ORIGINS"):
-        pool_config["blocked_origins"] = blocked_origins
-    if proxy_server := os.getenv(f"{prefix}PROXY_SERVER"):
-        pool_config["proxy_server"] = proxy_server
-    if caps := os.getenv(f"{prefix}CAPS"):
-        pool_config["caps"] = caps
-    if os.getenv(f"{prefix}SAVE_SESSION"):
-        pool_config["save_session"] = _get_bool_env(f"{prefix}SAVE_SESSION", False)
-    if os.getenv(f"{prefix}SAVE_TRACE"):
-        pool_config["save_trace"] = _get_bool_env(f"{prefix}SAVE_TRACE", False)
-    if save_video := os.getenv(f"{prefix}SAVE_VIDEO"):
-        pool_config["save_video"] = save_video
-    if output_dir := os.getenv(f"{prefix}OUTPUT_DIR"):
-        pool_config["output_dir"] = output_dir
-    if os.getenv(f"{prefix}TIMEOUT_ACTION"):
-        pool_config["timeout_action"] = _get_int_env(f"{prefix}TIMEOUT_ACTION", 15000)
-    if os.getenv(f"{prefix}TIMEOUT_NAVIGATION"):
-        pool_config["timeout_navigation"] = _get_int_env(f"{prefix}TIMEOUT_NAVIGATION", 5000)
-    if image_responses := os.getenv(f"{prefix}IMAGE_RESPONSES"):
-        pool_config["image_responses"] = image_responses
-    if user_agent := os.getenv(f"{prefix}USER_AGENT"):
-        pool_config["user_agent"] = user_agent
-    if init_script := os.getenv(f"{prefix}INIT_SCRIPT"):
-        pool_config["init_script"] = init_script
-    if os.getenv(f"{prefix}IGNORE_HTTPS_ERRORS"):
-        pool_config["ignore_https_errors"] = _get_bool_env(f"{prefix}IGNORE_HTTPS_ERRORS", False)
-    if os.getenv(f"{prefix}EXTENSION"):
-        pool_config["extension"] = _get_bool_env(f"{prefix}EXTENSION", False)
-    if extension_token := os.getenv(f"{prefix}EXTENSION_TOKEN"):
-        pool_config["extension_token"] = extension_token
-    if os.getenv(f"{prefix}WSL_WINDOWS"):
-        pool_config["wsl_windows"] = _get_bool_env(f"{prefix}WSL_WINDOWS", False)
+    _apply_config_overrides(pool_config, prefix)
 
     # Required pool-level settings
     instances = _get_int_env(f"{prefix}INSTANCES", 0)
@@ -383,62 +343,9 @@ def _parse_instance_config(
     """
     prefix = f"PW_MCP_PROXY__{pool_name}__{instance_id}_"
 
-    # Start with pool config
+    # Start with pool config and apply instance-specific overrides
     instance_config = pool_config.copy()
-
-    # Instance-specific overrides
-    if browser := os.getenv(f"{prefix}BROWSER"):
-        instance_config["browser"] = browser
-    if os.getenv(f"{prefix}HEADLESS"):
-        instance_config["headless"] = _get_bool_env(f"{prefix}HEADLESS", False)
-    if os.getenv(f"{prefix}NO_SANDBOX"):
-        instance_config["no_sandbox"] = _get_bool_env(f"{prefix}NO_SANDBOX", False)
-    if device := os.getenv(f"{prefix}DEVICE"):
-        instance_config["device"] = device
-    if viewport_size := os.getenv(f"{prefix}VIEWPORT_SIZE"):
-        instance_config["viewport_size"] = viewport_size
-    if os.getenv(f"{prefix}ISOLATED"):
-        instance_config["isolated"] = _get_bool_env(f"{prefix}ISOLATED", False)
-    if user_data_dir := os.getenv(f"{prefix}USER_DATA_DIR"):
-        instance_config["user_data_dir"] = user_data_dir
-    if storage_state := os.getenv(f"{prefix}STORAGE_STATE"):
-        instance_config["storage_state"] = storage_state
-    if allowed_origins := os.getenv(f"{prefix}ALLOWED_ORIGINS"):
-        instance_config["allowed_origins"] = allowed_origins
-    if blocked_origins := os.getenv(f"{prefix}BLOCKED_ORIGINS"):
-        instance_config["blocked_origins"] = blocked_origins
-    if proxy_server := os.getenv(f"{prefix}PROXY_SERVER"):
-        instance_config["proxy_server"] = proxy_server
-    if caps := os.getenv(f"{prefix}CAPS"):
-        instance_config["caps"] = caps
-    if os.getenv(f"{prefix}SAVE_SESSION"):
-        instance_config["save_session"] = _get_bool_env(f"{prefix}SAVE_SESSION", False)
-    if os.getenv(f"{prefix}SAVE_TRACE"):
-        instance_config["save_trace"] = _get_bool_env(f"{prefix}SAVE_TRACE", False)
-    if save_video := os.getenv(f"{prefix}SAVE_VIDEO"):
-        instance_config["save_video"] = save_video
-    if output_dir := os.getenv(f"{prefix}OUTPUT_DIR"):
-        instance_config["output_dir"] = output_dir
-    if os.getenv(f"{prefix}TIMEOUT_ACTION"):
-        instance_config["timeout_action"] = _get_int_env(f"{prefix}TIMEOUT_ACTION", 15000)
-    if os.getenv(f"{prefix}TIMEOUT_NAVIGATION"):
-        instance_config["timeout_navigation"] = _get_int_env(f"{prefix}TIMEOUT_NAVIGATION", 5000)
-    if image_responses := os.getenv(f"{prefix}IMAGE_RESPONSES"):
-        instance_config["image_responses"] = image_responses
-    if user_agent := os.getenv(f"{prefix}USER_AGENT"):
-        instance_config["user_agent"] = user_agent
-    if init_script := os.getenv(f"{prefix}INIT_SCRIPT"):
-        instance_config["init_script"] = init_script
-    if os.getenv(f"{prefix}IGNORE_HTTPS_ERRORS"):
-        instance_config["ignore_https_errors"] = _get_bool_env(
-            f"{prefix}IGNORE_HTTPS_ERRORS", False
-        )
-    if os.getenv(f"{prefix}EXTENSION"):
-        instance_config["extension"] = _get_bool_env(f"{prefix}EXTENSION", False)
-    if extension_token := os.getenv(f"{prefix}EXTENSION_TOKEN"):
-        instance_config["extension_token"] = extension_token
-    if os.getenv(f"{prefix}WSL_WINDOWS"):
-        instance_config["wsl_windows"] = _get_bool_env(f"{prefix}WSL_WINDOWS", False)
+    _apply_config_overrides(instance_config, prefix)
 
     # Instance-only setting: ALIAS
     alias = os.getenv(f"{prefix}ALIAS")

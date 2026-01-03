@@ -23,7 +23,7 @@
             }
         }
     },
-    "postCreateCommand": "uv sync --extra dev",
+    "postCreateCommand": "uv sync --extra dev && uv pip install radon",
 
     // Fix docker group GID to match host's docker socket
     "postStartCommand": "sudo chgrp docker /var/run/docker.sock 2>/dev/null || true",

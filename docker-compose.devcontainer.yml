@@ -15,7 +15,7 @@ services:
       # Mount Claude Desktop MCP server log file (read-only)
       - /mnt/c/Users/nickw/AppData/Roaming/Claude/logs:/workspace/logs:ro
       # Mount Claude Code config for authentication
-      - /mnt/c/Users/nickw/.config/claude-code:/home/vscode/.config/claude-code:ro
+      - /mnt/c/Users/nickw/.claude:/home/vscode/.claude
     ports:
       - "8000:8000"
     stdin_open: true

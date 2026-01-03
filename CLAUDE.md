@@ -2,6 +2,28 @@
 
 This document provides essential context and guidelines for Claude when working with this MCP proxy server project.
 
+## ⚠️ CRITICAL: ALWAYS USE `uv` FOR PYTHON COMMANDS
+
+**THIS PROJECT USES `uv` AS THE PACKAGE MANAGER. YOU MUST PREFIX ALL PYTHON-RELATED COMMANDS WITH `uv run`:**
+
+- ✅ **CORRECT**: `uv run pytest`, `uv run python script.py`, `uv run radon cc src/`
+- ❌ **WRONG**: `pytest`, `python script.py`, `radon cc src/`, `pip install package`
+
+**For package installation:**
+- ✅ **CORRECT**: `uv pip install package-name`
+- ❌ **WRONG**: `pip install package-name`
+
+**Why this matters:**
+- `uv` manages the virtual environment and ensures dependencies are correctly resolved
+- Running Python commands without `uv run` will use the system Python instead of the project's virtual environment
+- This can cause "command not found" errors or use wrong package versions
+
+**Remember this every time you:**
+- Run tests
+- Execute Python scripts
+- Use Python CLI tools (pytest, radon, ruff, etc.)
+- Install Python packages
+
 ## Project Overview
 
 This is a proxy server for Microsoft's playwright-mcp built with Python and FastMCP. It provides efficient handling of large binary data (screenshots, PDFs) by storing them as blobs and returning blob:// URIs.

@@ -180,6 +180,60 @@ async def _call_playwright_tool(
 # =============================================================================
 
 
+def _create_navigation_error(
+    url: str,
+    error: str,
+    offset: int = 0,
+    limit: int = 1000,
+    cache_key: str = "",
+    output_format: str = "yaml",
+) -> dict[str, Any]:
+    """Create a navigation error response."""
+    from .types import NavigationResponse
+
+    return NavigationResponse(
+        success=False,
+        url=url,
+        error=error,
+        cache_key=cache_key,
+        total_items=0,
+        offset=offset,
+        limit=limit,
+        has_more=False,
+        snapshot=None,
+        output_format=output_format,
+    )
+
+
+def _validate_navigation_params(
+    output_format: str,
+    offset: int,
+    limit: int,
+    flatten: bool,
+    jmespath_query: str | None,
+    cache_key: str | None,
+) -> str | None:
+    """
+    Validate navigation parameters.
+
+    Returns error message if validation fails, None if valid.
+    """
+    if output_format.lower() not in ["json", "yaml"]:
+        return "output_format must be 'json' or 'yaml'"
+
+    if offset < 0:
+        return "offset must be non-negative"
+
+    if limit < 1 or limit > 10000:
+        return "limit must be between 1 and 10000"
+
+    # Validate pagination requires flatten, JMESPath query, or cache_key
+    if (offset > 0 or limit != 1000) and not flatten and not jmespath_query and not cache_key:
+        return "Pagination (offset/limit) requires flatten=True, jmespath_query, or cache_key. ARIA snapshots are single tree structures without flattening or queries."
+
+    return None
+
+
 @mcp.tool()
 @log_tool_result(logger)
 async def browser_navigate(
@@ -339,77 +393,16 @@ async def browser_navigate(
 
     # Check if navigation_cache is initialized
     if navigation_cache is None:
-        return NavigationResponse(
-            success=False,
-            url=url,
-            error="Navigation cache not initialized",
-            cache_key="",
-            total_items=0,
-            offset=offset,
-            limit=limit,
-            has_more=False,
-            snapshot=None,
-            output_format=output_format,
+        return _create_navigation_error(
+            url, "Navigation cache not initialized", offset, limit, "", output_format
         )
 
     # Validate parameters
-    if output_format.lower() not in ["json", "yaml"]:
-        return NavigationResponse(
-            success=False,
-            url=url,
-            error="output_format must be 'json' or 'yaml'",
-            cache_key="",
-            total_items=0,
-            offset=offset,
-            limit=limit,
-            has_more=False,
-            snapshot=None,
-            output_format=output_format,
-        )
-
-    if offset < 0:
-        return NavigationResponse(
-            success=False,
-            url=url,
-            error="offset must be non-negative",
-            cache_key="",
-            total_items=0,
-            offset=offset,
-            limit=limit,
-            has_more=False,
-            snapshot=None,
-            output_format=output_format,
-        )
-
-    if limit < 1 or limit > 10000:
-        return NavigationResponse(
-            success=False,
-            url=url,
-            error="limit must be between 1 and 10000",
-            cache_key="",
-            total_items=0,
-            offset=offset,
-            limit=limit,
-            has_more=False,
-            snapshot=None,
-            output_format=output_format,
-        )
-
-    # Validate pagination requires flatten, JMESPath query, or cache_key
-    # ARIA snapshots without flattening/queries are single tree structures (not pageable)
-    if (offset > 0 or limit != 1000) and not flatten and not jmespath_query and not cache_key:
-        return NavigationResponse(
-            success=False,
-            url=url,
-            error="Pagination (offset/limit) requires flatten=True, jmespath_query, or cache_key. ARIA snapshots are single tree structures without flattening or queries.",
-            cache_key="",
-            total_items=0,
-            offset=offset,
-            limit=limit,
-            has_more=False,
-            snapshot=None,
-            output_format=output_format,
-        )
+    validation_error = _validate_navigation_params(
+        output_format, offset, limit, flatten, jmespath_query, cache_key
+    )
+    if validation_error:
+        return _create_navigation_error(url, validation_error, offset, limit, "", output_format)
 
     # Silent mode: just navigate, no processing
     if silent_mode:
@@ -428,18 +421,7 @@ async def browser_navigate(
                 output_format=output_format,
             )
         except Exception as e:
-            return NavigationResponse(
-                success=False,
-                url=url,
-                error=f"Navigation failed: {e}",
-                cache_key="",
-                total_items=0,
-                offset=0,
-                limit=limit,
-                has_more=False,
-                snapshot=None,
-                output_format=output_format,
-            )
+            return _create_navigation_error(url, f"Navigation failed: {e}", 0, limit, "", output_format)
 
     # Get or fetch snapshot data
     snapshot_json = None
@@ -468,52 +450,23 @@ async def browser_navigate(
                         break
 
             if not yaml_snapshot:
-                return NavigationResponse(
-                    success=False,
-                    url=url,
-                    error="No ARIA snapshot found in navigation response",
-                    cache_key="",
-                    total_items=0,
-                    offset=offset,
-                    limit=limit,
-                    has_more=False,
-                    snapshot=None,
-                    output_format=output_format,
+                return _create_navigation_error(
+                    url, "No ARIA snapshot found in navigation response", offset, limit, "", output_format
                 )
 
             # Parse YAML snapshot to JSON
             snapshot_json, parse_errors = parse_aria_snapshot(yaml_snapshot)
 
             if parse_errors:
-                return NavigationResponse(
-                    success=False,
-                    url=url,
-                    error=f"ARIA snapshot parse errors: {'; '.join(parse_errors)}",
-                    cache_key="",
-                    total_items=0,
-                    offset=offset,
-                    limit=limit,
-                    has_more=False,
-                    snapshot=None,
-                    output_format=output_format,
+                return _create_navigation_error(
+                    url, f"ARIA snapshot parse errors: {'; '.join(parse_errors)}", offset, limit, "", output_format
                 )
 
             # Store in cache
             key = navigation_cache.create(url, snapshot_json)
 
     except Exception as e:
-        return NavigationResponse(
-            success=False,
-            url=url,
-            error=f"Navigation failed: {e}",
-            cache_key="",
-            total_items=0,
-            offset=offset,
-            limit=limit,
-            has_more=False,
-            snapshot=None,
-            output_format=output_format,
-        )
+        return _create_navigation_error(url, f"Navigation failed: {e}", offset, limit, "", output_format)
 
     # Apply flattening if requested
     # Flatten before JMESPath query so queries can filter on _depth, _parent_role, etc.
@@ -526,18 +479,7 @@ async def browser_navigate(
     if jmespath_query:
         result_data, query_error = apply_jmespath_query(result_data, jmespath_query)
         if query_error:
-            return NavigationResponse(
-                success=False,
-                url=url,
-                error=query_error,
-                cache_key=key,
-                total_items=0,
-                offset=offset,
-                limit=limit,
-                has_more=False,
-                snapshot=None,
-                output_format=output_format,
-            )
+            return _create_navigation_error(url, query_error, offset, limit, key, output_format)
 
     # Handle pagination - wrap non-list in array for consistency
     paginated_data = None
@@ -825,6 +767,36 @@ async def browser_execute_bulk(
 # =============================================================================
 
 
+def _extract_blob_id_from_response(result: Any) -> str | None:
+    """
+    Extract blob ID from MCP response.
+
+    Handles both dict and Pydantic model responses.
+    """
+    # Extract content field
+    content = None
+    if isinstance(result, dict):
+        content = result.get("content")
+    elif hasattr(result, "content"):
+        content = result.content
+
+    # Search for blob item in content list
+    if content and isinstance(content, list):
+        for item in content:
+            # Handle both dict and object (Pydantic model) items
+            item_type = item.get("type") if isinstance(item, dict) else getattr(item, "type", None)
+            if item_type == "blob":
+                blob_id = item.get("blob_id") if isinstance(item, dict) else getattr(item, "blob_id", None)
+                if blob_id:
+                    return blob_id
+
+    # Fallback: if result is already a string, return it
+    if isinstance(result, str):
+        return result
+
+    return None
+
+
 @mcp.tool()
 @log_tool_result(logger)
 async def browser_take_screenshot(
@@ -865,29 +837,12 @@ async def browser_take_screenshot(
         args["fullPage"] = fullPage
 
     result = await _call_playwright_tool("browser_take_screenshot", args)
+    blob_id = _extract_blob_id_from_response(result)
 
-    # Extract blob URI from transformed response
-    # Handle both dict and object (Pydantic model) responses
-    content = None
-    if isinstance(result, dict):
-        content = result.get("content")
-    elif hasattr(result, "content"):
-        content = result.content
+    if not blob_id:
+        raise RuntimeError(f"Failed to extract blob URI from screenshot result: {result}")
 
-    if content and isinstance(content, list):
-        for item in content:
-            # Handle both dict and object (Pydantic model) items
-            item_type = item.get("type") if isinstance(item, dict) else getattr(item, "type", None)
-            if item_type == "blob":
-                blob_id = item.get("blob_id") if isinstance(item, dict) else getattr(item, "blob_id", None)
-                if blob_id:
-                    return blob_id
-
-    # Fallback: if result is already a string, return it
-    if isinstance(result, str):
-        return result
-
-    raise RuntimeError(f"Failed to extract blob URI from screenshot result: {result}")
+    return blob_id
 
 
 @mcp.tool()
@@ -911,29 +866,12 @@ async def browser_pdf_save(filename: str | None = None) -> str:
         args["filename"] = filename
 
     result = await _call_playwright_tool("browser_pdf_save", args)
+    blob_id = _extract_blob_id_from_response(result)
 
-    # Extract blob URI from transformed response
-    # Handle both dict and object (Pydantic model) responses
-    content = None
-    if isinstance(result, dict):
-        content = result.get("content")
-    elif hasattr(result, "content"):
-        content = result.content
+    if not blob_id:
+        raise RuntimeError(f"Failed to extract blob URI from PDF result: {result}")
 
-    if content and isinstance(content, list):
-        for item in content:
-            # Handle both dict and object (Pydantic model) items
-            item_type = item.get("type") if isinstance(item, dict) else getattr(item, "type", None)
-            if item_type == "blob":
-                blob_id = item.get("blob_id") if isinstance(item, dict) else getattr(item, "blob_id", None)
-                if blob_id:
-                    return blob_id
-
-    # Fallback: if result is already a string, return it
-    if isinstance(result, str):
-        return result
-
-    raise RuntimeError(f"Failed to extract blob URI from PDF result: {result}")
+    return blob_id
 
 
 # =============================================================================
@@ -956,6 +894,42 @@ async def browser_run_code(code: str) -> dict[str, Any]:
         Code execution result
     """
     return await _call_playwright_tool("browser_run_code", {"code": code})
+
+
+def _create_evaluation_error(
+    error: str,
+    offset: int = 0,
+    limit: int = 1000,
+    cache_key: str = "",
+) -> dict[str, Any]:
+    """Create an evaluation error response."""
+    from .types import EvaluationResponse
+
+    return EvaluationResponse(
+        success=False,
+        error=error,
+        cache_key=cache_key,
+        total_items=0,
+        offset=offset,
+        limit=limit,
+        has_more=False,
+        result=None,
+    )
+
+
+def _validate_evaluation_params(offset: int, limit: int) -> str | None:
+    """
+    Validate evaluation parameters.
+
+    Returns error message if validation fails, None if valid.
+    """
+    if offset < 0:
+        return "offset must be non-negative"
+
+    if limit < 1 or limit > 10000:
+        return "limit must be between 1 and 10000"
+
+    return None
 
 
 @mcp.tool()
@@ -1079,29 +1053,9 @@ async def browser_evaluate(
         return await _call_playwright_tool("browser_evaluate", args)
 
     # Pagination mode: validate parameters
-    if offset < 0:
-        return EvaluationResponse(
-            success=False,
-            error="offset must be non-negative",
-            cache_key="",
-            total_items=0,
-            offset=offset,
-            limit=limit,
-            has_more=False,
-            result=None,
-        )
-
-    if limit < 1 or limit > 10000:
-        return EvaluationResponse(
-            success=False,
-            error="limit must be between 1 and 10000",
-            cache_key="",
-            total_items=0,
-            offset=offset,
-            limit=limit,
-            has_more=False,
-            result=None,
-        )
+    validation_error = _validate_evaluation_params(offset, limit)
+    if validation_error:
+        return _create_evaluation_error(validation_error, offset, limit)
 
     # Check cache or evaluate fresh
     result_data = None
@@ -1133,16 +1087,7 @@ async def browser_evaluate(
             key = navigation_cache.create("", result_data)
 
     except Exception as e:
-        return EvaluationResponse(
-            success=False,
-            error=f"Evaluation failed: {e}",
-            cache_key="",
-            total_items=0,
-            offset=offset,
-            limit=limit,
-            has_more=False,
-            result=None,
-        )
+        return _create_evaluation_error(f"Evaluation failed: {e}", offset, limit)
 
     # Wrap non-list results in array for consistent pagination
     if isinstance(result_data, list):
@@ -1330,77 +1275,16 @@ async def browser_snapshot(
 
     # Check if navigation_cache is initialized
     if navigation_cache is None:
-        return NavigationResponse(
-            success=False,
-            url="",
-            error="Navigation cache not initialized",
-            cache_key="",
-            total_items=0,
-            offset=offset,
-            limit=limit,
-            has_more=False,
-            snapshot=None,
-            output_format=output_format,
+        return _create_navigation_error(
+            "", "Navigation cache not initialized", offset, limit, "", output_format
         )
 
     # Validate parameters
-    if output_format.lower() not in ["json", "yaml"]:
-        return NavigationResponse(
-            success=False,
-            url="",
-            error="output_format must be 'json' or 'yaml'",
-            cache_key="",
-            total_items=0,
-            offset=offset,
-            limit=limit,
-            has_more=False,
-            snapshot=None,
-            output_format=output_format,
-        )
-
-    if offset < 0:
-        return NavigationResponse(
-            success=False,
-            url="",
-            error="offset must be non-negative",
-            cache_key="",
-            total_items=0,
-            offset=offset,
-            limit=limit,
-            has_more=False,
-            snapshot=None,
-            output_format=output_format,
-        )
-
-    if limit < 1 or limit > 10000:
-        return NavigationResponse(
-            success=False,
-            url="",
-            error="limit must be between 1 and 10000",
-            cache_key="",
-            total_items=0,
-            offset=offset,
-            limit=limit,
-            has_more=False,
-            snapshot=None,
-            output_format=output_format,
-        )
-
-    # Validate pagination requires flatten, JMESPath query, or cache_key
-    # ARIA snapshots without flattening/queries are single tree structures (not pageable)
-    if (offset > 0 or limit != 1000) and not flatten and not jmespath_query and not cache_key:
-        return NavigationResponse(
-            success=False,
-            url="",
-            error="Pagination (offset/limit) requires flatten=True, jmespath_query, or cache_key. ARIA snapshots are single tree structures without flattening or queries.",
-            cache_key="",
-            total_items=0,
-            offset=offset,
-            limit=limit,
-            has_more=False,
-            snapshot=None,
-            output_format=output_format,
-        )
+    validation_error = _validate_navigation_params(
+        output_format, offset, limit, flatten, jmespath_query, cache_key
+    )
+    if validation_error:
+        return _create_navigation_error("", validation_error, offset, limit, "", output_format)
 
     # Silent mode: just capture, no processing
     if silent_mode:
@@ -1419,18 +1303,7 @@ async def browser_snapshot(
                 output_format=output_format,
             )
         except Exception as e:
-            return NavigationResponse(
-                success=False,
-                url="",
-                error=f"Snapshot failed: {e}",
-                cache_key="",
-                total_items=0,
-                offset=0,
-                limit=limit,
-                has_more=False,
-                snapshot=None,
-                output_format=output_format,
-            )
+            return _create_navigation_error("", f"Snapshot failed: {e}", 0, limit, "", output_format)
 
     # Get or fetch snapshot data
     snapshot_json = None
@@ -1459,52 +1332,23 @@ async def browser_snapshot(
                         break
 
             if not yaml_snapshot:
-                return NavigationResponse(
-                    success=False,
-                    url="",
-                    error="No ARIA snapshot found in response",
-                    cache_key="",
-                    total_items=0,
-                    offset=offset,
-                    limit=limit,
-                    has_more=False,
-                    snapshot=None,
-                    output_format=output_format,
+                return _create_navigation_error(
+                    "", "No ARIA snapshot found in response", offset, limit, "", output_format
                 )
 
             # Parse YAML snapshot to JSON
             snapshot_json, parse_errors = parse_aria_snapshot(yaml_snapshot)
 
             if parse_errors:
-                return NavigationResponse(
-                    success=False,
-                    url="",
-                    error=f"ARIA snapshot parse errors: {'; '.join(parse_errors)}",
-                    cache_key="",
-                    total_items=0,
-                    offset=offset,
-                    limit=limit,
-                    has_more=False,
-                    snapshot=None,
-                    output_format=output_format,
+                return _create_navigation_error(
+                    "", f"ARIA snapshot parse errors: {'; '.join(parse_errors)}", offset, limit, "", output_format
                 )
 
             # Store in cache (use empty URL for snapshots)
             key = navigation_cache.create("", snapshot_json)
 
     except Exception as e:
-        return NavigationResponse(
-            success=False,
-            url="",
-            error=f"Snapshot failed: {e}",
-            cache_key="",
-            total_items=0,
-            offset=offset,
-            limit=limit,
-            has_more=False,
-            snapshot=None,
-            output_format=output_format,
-        )
+        return _create_navigation_error("", f"Snapshot failed: {e}", offset, limit, "", output_format)
 
     # Apply flattening if requested
     # Flatten before JMESPath query so queries can filter on _depth, _parent_role, etc.
@@ -1517,18 +1361,7 @@ async def browser_snapshot(
     if jmespath_query:
         result_data, query_error = apply_jmespath_query(result_data, jmespath_query)
         if query_error:
-            return NavigationResponse(
-                success=False,
-                url="",
-                error=query_error,
-                cache_key=key,
-                total_items=0,
-                offset=offset,
-                limit=limit,
-                has_more=False,
-                snapshot=None,
-                output_format=output_format,
-            )
+            return _create_navigation_error("", query_error, offset, limit, key, output_format)
 
     # Handle pagination - wrap non-list in array for consistency
     paginated_data = None

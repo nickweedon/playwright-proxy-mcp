@@ -1,5 +1,5 @@
 ---
-allowed-tools: Bash(uv:*), Bash(radon:*), Bash(pip:install radon)
+allowed-tools: Bash(uv:*), Bash(radon:*), Bash(pmd:*), Bash(pip:install radon)
 description: Run linting, tests, and validate test coverage is proportional to code complexity.
 ---
 
@@ -10,26 +10,60 @@ This command executes the full validation pipeline to ensure code quality and ad
 ## Steps
 
 1. **Ensure Radon is Installed**
-   - Check if radon is available, if not install it: `pip install radon`
+   - Check if radon is available, if not install it: `uv pip install radon`
    - Radon is used for cyclomatic complexity analysis
 
-2. **Linting**
+2. **Ensure PMD is Installed**
+   - Check if PMD is available in PATH
+   - If not installed, install it automatically:
+     ```bash
+     # Download latest PMD release
+     PMD_VERSION="7.10.0"
+     wget "https://github.com/pmd/pmd/releases/download/pmd_releases%2F${PMD_VERSION}/pmd-dist-${PMD_VERSION}-bin.zip" -O /tmp/pmd.zip
+     unzip -q /tmp/pmd.zip -d /tmp
+     sudo mv /tmp/pmd-bin-${PMD_VERSION} /opt/pmd
+     sudo ln -sf /opt/pmd/bin/pmd /usr/local/bin/pmd
+     rm /tmp/pmd.zip
+     ```
+   - PMD is used for code duplication detection
+
+3. **Linting**
    - Run `uv run ruff check src/` to check code style and quality
    - If linting fails, stop and report errors to the user
 
-3. **Tests**
+4. **Tests**
    - Run `uv run pytest -v` to execute the test suite
    - If tests fail, stop and report errors to the user
    - Note: Coverage reporting is not currently configured in this project
 
-4. **Cyclomatic Complexity Analysis**
-   - Run `radon cc src/playwright_proxy_mcp -a -s` to analyze cyclomatic complexity
+5. **Code Duplication Detection**
+   - Run PMD CPD to detect duplicated code blocks:
+     ```bash
+     pmd cpd \
+       --language python \
+       --minimum-tokens 80 \
+       --ignore-literals \
+       --ignore-identifiers \
+       --ignore-annotations \
+       --skip-duplicate-files \
+       --exclude "**/.venv/**,**/venv/**,**/__pycache__/**,**/.git/**,**/build/**,**/dist/**,**/.mypy_cache/**,**/.pytest_cache/**,**/.tox/**" \
+       --dir "src" \
+       --fail-on-violation
+     ```
+   - `--minimum-tokens 80`: Flag duplicated blocks of 80+ tokens (adjust if needed)
+   - `--ignore-literals`: Ignore literal values when comparing code
+   - `--ignore-identifiers`: Ignore identifier names when comparing code
+   - If duplications are found, report them but continue (non-blocking)
+   - Duplicated code should be refactored into shared functions or utilities
+
+6. **Cyclomatic Complexity Analysis**
+   - Run `uv run radon cc src/playwright_proxy_mcp -a -s` to analyze cyclomatic complexity
      - `-a` shows average complexity
      - `-s` sorts by complexity (highest first)
    - Report the results with clear headers
    - Identify any functions with high complexity (C grade or worse) that may need refactoring
 
-5. **Test Proportionality Check**
+7. **Test Proportionality Check**
    - Calculate total complexity of source code modules
    - Count tests in corresponding test files
    - **Guideline**: For any module with complexity >= 6 (B or less), test count should be >= 80% of complexity score
@@ -39,8 +73,9 @@ This command executes the full validation pipeline to ensure code quality and ad
    - Report modules rated B grade or below
    - Highlight areas that need more test coverage
 
-6. **Report Results**
+8. **Report Results**
    - Use clear section headers and status indicators
+   - Include duplication detection results
    - Include complexity metrics and test proportionality assessment
    - Include next steps for the user
 
@@ -51,8 +86,14 @@ Structure the output with these sections:
 ### Test & Verification Status
 - ✅/❌ Lint passed
 - ✅/❌ Tests passed (include test count and any failures)
+- ✅/⚠️ Duplication check (show number of duplications found)
 - ✅ Complexity analysis completed
 - ✅/⚠️ Test proportionality check (show ratio and assessment)
+
+### Code Duplication
+- **Duplicate Blocks Found**: Show count and locations of duplicated code
+- **Duplication Details**: List file paths and line ranges for each duplication
+- **Refactoring Opportunities**: Suggest where duplicated code should be extracted
 
 ### Complexity Metrics
 - **Source Code Complexity**: Show average and total complexity by module
@@ -61,27 +102,31 @@ Structure the output with these sections:
 - **Test-to-Complexity Ratio**: Show modules that meet/don't meet the 80% guideline
 
 ### Next Steps
+- Refactor duplicated code into shared utilities or functions
 - Review high complexity functions and consider refactoring
 - Add tests for modules below the 80% test coverage threshold
 - Fix any linting or test failures
 
 ### Recommendations (if applicable)
+- If duplications are found, suggest specific refactoring to eliminate them
 - If test proportionality is low, suggest specific modules that need more tests
 - If any source functions have high complexity (C or worse), recommend refactoring or additional test coverage
 
 ## Error Handling
 
-- If radon is not installed, install it automatically with `pip install radon`
+- If radon is not installed, install it automatically with `uv pip install radon`
+- If PMD is not installed or not in PATH, install it automatically using the installation steps above
 - If linting fails, report the errors and stop (blocking)
 - If tests fail, report which tests failed and stop (blocking)
+- If duplication check fails, show the error but continue (non-blocking)
 - If complexity analysis fails, show the error but continue (non-blocking)
-- Do not proceed to complexity analysis if linting or tests fail
+- Do not proceed to duplication check or complexity analysis if linting or tests fail
 
 ## Implementation Notes
 
 To extract complexity metrics from radon output:
-- Use `radon cc -j src/playwright_proxy_mcp` for JSON output to programmatically parse complexity
-- Use `radon cc -j tests` for test complexity analysis
+- Use `uv run radon cc -j src/playwright_proxy_mcp` for JSON output to programmatically parse complexity
+- Use `uv run radon cc -j tests` for test complexity analysis
 - Sum up all complexity values to get total complexity per module
 - Count the number of functions/methods to calculate averages
 - Match test files to source files (e.g., `test_server.py` → `server.py`)

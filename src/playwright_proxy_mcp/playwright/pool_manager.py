@@ -182,7 +182,7 @@ class BrowserPool:
             if proxy_client._client and hasattr(proxy_client._client, "_transport"):
                 transport = proxy_client._client._transport
                 if hasattr(transport, "_process"):
-                    process_manager.set_process(transport._process)
+                    await process_manager.set_process(transport._process)
                     logger.debug(f"  Process registered (PID: {transport._process.pid if hasattr(transport._process, 'pid') else 'unknown'})")
                 else:
                     logger.warning(f"  Transport has no _process attribute for instance {instance_id}")
