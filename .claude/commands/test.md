@@ -3,99 +3,93 @@ allowed-tools: Bash(./scripts/test.sh:*), Bash(uv:*), Bash(radon:*), Bash(pmd:*)
 description: Run linting, tests, and validate test coverage is proportional to code complexity.
 ---
 
-## Overview
+## Purpose
 
-This command runs the comprehensive test validation pipeline including linting, tests, code duplication detection, and complexity analysis with test coverage proportionality validation.
-
-## Usage
-
-The test suite is implemented as a standalone script for easy execution:
-
-```bash
-# Run all checks
-./scripts/test.sh
-
-# Skip specific checks
-./scripts/test.sh --skip-duplication
-./scripts/test.sh --skip-complexity
-
-# Continue on errors (run all checks even if some fail)
-./scripts/test.sh --continue-on-error
-
-# Get help
-./scripts/test.sh --help
-```
+Run the comprehensive test validation pipeline and produce an actionable report for code quality improvements.
 
 ## Execution
 
-When run via this Claude command, all checks are executed with default settings (exit on critical failures).
+Run the test script with `--continue-on-error` to capture all issues:
 
-The script will be invoked directly: `./scripts/test.sh`
+```bash
+./scripts/test.sh --continue-on-error
+```
 
-## Output
+## Checks Performed
 
-The script provides a comprehensive report including:
+| Check | Tool | Blocking | Action Required |
+|-------|------|----------|-----------------|
+| **Linting** | `ruff check src/` | ✅ Yes | Fix all linting errors before commit |
+| **Type Checking** | `pyright src/playwright_proxy_mcp` | ✅ Yes | Fix all type errors - no exceptions |
+| **Tests** | `pytest -v` | ✅ Yes | All tests must pass |
+| **Duplication** | PMD CPD (80+ tokens) | ⚠️ No | Review and refactor if in project source |
+| **Complexity** | Radon (Grade C+) | ⚠️ No | Consider refactoring high-complexity functions |
+| **Proportionality** | Test/complexity ratio | ⚠️ No | Add tests to meet 80% guideline |
 
-### Test & Verification Status
-- ✅/❌ Lint passed/failed
-- ✅/❌ Tests passed/failed (with count)
-- ✅/⚠️ Duplication check (non-blocking warnings)
-- ✅/⚠️ Complexity analysis (non-blocking warnings)
-- ✅/⚠️ Test proportionality check (80% guideline)
+## Report Format
 
-### Detailed Results
-- Code duplication blocks (if found)
-- High complexity functions (Grade C or worse)
-- Modules needing additional test coverage
-- Test-to-complexity ratios
+After running, produce an **Action Plan** with the following structure:
 
-## Implementation Details
+### 1. Critical Fixes (Must Address)
 
-The script performs these steps:
+For each blocking failure, provide:
+- **Issue**: Brief description of the failure
+- **Location**: File path and line number(s)
+- **Fix**: Specific action to resolve
 
-1. **Prerequisites**: Installs Radon and PMD if missing
-2. **Linting**: `uv run ruff check src/` (blocking)
-3. **Tests**: `uv run pytest -v` (blocking)
-4. **Duplication**: PMD CPD with 80+ token threshold (non-blocking)
-5. **Complexity**: Radon cyclomatic complexity analysis (non-blocking)
-6. **Proportionality**: Validates 80% test coverage guideline for complex modules (non-blocking)
+Example:
+```
+**Issue**: Type error - argument type mismatch
+**Location**: src/playwright_proxy_mcp/api/browser.py:45
+**Fix**: Change `result: str` to `result: dict[str, Any]` to match return type of `call_tool()`
+```
+
+### 2. Recommended Improvements (Should Address)
+
+For non-blocking warnings, provide:
+- **Category**: Duplication / Complexity / Test Coverage
+- **Location**: File(s) and function(s) affected
+- **Recommendation**: Suggested improvement with rationale
+
+Example:
+```
+**Category**: Complexity
+**Location**: src/playwright_proxy_mcp/middleware.py:process_response (Grade C, complexity 12)
+**Recommendation**: Extract conditional blocks into helper functions to reduce cyclomatic complexity
+```
+
+### 3. Test Coverage Gaps
+
+For modules below 80% test proportionality:
+- **Module**: Module name
+- **Current**: X tests / Y complexity
+- **Needed**: Z additional tests
+- **Suggested Tests**: List specific test cases to add
 
 ## Exit Codes
 
-- **0**: All checks passed or non-critical warnings only
-- **1**: Linting failed
-- **2**: Tests failed
-- **3**: Script execution error
+| Code | Meaning | Action |
+|------|---------|--------|
+| 0 | All checks passed | None required |
+| 1 | Linting or type checking failed | Fix errors immediately |
+| 2 | Tests failed | Fix failing tests |
+| 3 | Script execution error | Check prerequisites |
 
-## Manual Execution
-
-The script can be run directly outside of Claude:
-
-```bash
-cd /workspace
-./scripts/test.sh
-```
-
-This makes it easy to integrate into CI/CD pipelines, git hooks, or manual testing workflows.
-
-## Advanced Options
+## Script Options
 
 ```bash
-# Skip linting (useful if already linted)
-./scripts/test.sh --skip-lint
-
-# Skip tests (useful for quick complexity check)
-./scripts/test.sh --skip-tests
-
-# Skip duplication detection (faster execution)
-./scripts/test.sh --skip-duplication
-
-# Skip complexity analysis
-./scripts/test.sh --skip-complexity
-
-# Run everything even if some checks fail
-./scripts/test.sh --continue-on-error
-
-# Combine options
-./scripts/test.sh --skip-duplication --skip-complexity
+./scripts/test.sh --help              # Show all options
+./scripts/test.sh --skip-lint         # Skip linting
+./scripts/test.sh --skip-typecheck    # Skip type checking
+./scripts/test.sh --skip-tests        # Skip pytest
+./scripts/test.sh --skip-duplication  # Skip PMD CPD
+./scripts/test.sh --skip-complexity   # Skip Radon analysis
+./scripts/test.sh --continue-on-error # Run all checks even if some fail
 ```
+
+## Important Notes
+
+- **Type Errors**: All pyright type errors must be fixed. Do not ignore or suppress type errors without explicit user approval.
+- **Linting**: All ruff errors must be resolved. Use `uv run ruff check --fix src/` for auto-fixable issues.
+- **Tests**: Failing tests block the pipeline. Investigate root cause before proceeding.
+- **Warnings**: Non-blocking warnings should be addressed in a follow-up session if not immediately actionable.
