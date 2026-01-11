@@ -131,6 +131,10 @@ class TestIntegrationWorkflows:
         # Verify navigation succeeded
         assert navigate_result is not None, "Navigation result should not be None"
 
+        # Wait for the page to stabilize after navigation before taking screenshot
+        # Amazon's page has dynamic content that can trigger execution context changes
+        await server_module.browser_wait_for.fn(time=2.0)
+
         # Take a screenshot using the MCP server tool's underlying function (not proxy client directly!)
         blob_uri = await server_module.browser_take_screenshot.fn(
             filename="amazon_homepage", fullPage=False
@@ -253,6 +257,10 @@ class TestIntegrationWorkflows:
 
         # Navigate to Amazon
         await server_module.browser_navigate.fn("https://www.amazon.com")
+
+        # Wait for the page to stabilize after navigation before taking screenshot
+        # Amazon's page has dynamic content that can trigger execution context changes
+        await server_module.browser_wait_for.fn(time=2.0)
 
         # Take viewport-only screenshot (full_page=False)
         blob_uri = await server_module.browser_take_screenshot.fn(

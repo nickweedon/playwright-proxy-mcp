@@ -4,6 +4,15 @@ This document provides essential context and guidelines for Claude when working 
 
 ## ⚠️ CRITICAL: ALWAYS USE `uv` FOR PYTHON COMMANDS
 
+## Tool Usage
+
+If you are running as the `vscode` user then you are running in devcontainer mode.
+
+⚠️ **IMPORTANT**: If running in devcontainer mode then you must always add any missing commands/utilities/binaries (commands that you try running but that fail because the command/utility is not installed).
+
+⚠️ **IMPORTANT**: When in devcontainer mode and installing any binary/utility/command, you MUST always update the devcontainer/docker image such that the command is automatically available on next devcontainer rebuild.
+
+
 **THIS PROJECT USES `uv` AS THE PACKAGE MANAGER. YOU MUST PREFIX ALL PYTHON-RELATED COMMANDS WITH `uv run`:**
 
 - ✅ **CORRECT**: `uv run pytest`, `uv run python script.py`, `uv run radon cc src/`
