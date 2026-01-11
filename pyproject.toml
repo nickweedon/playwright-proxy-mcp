@@ -81,6 +81,20 @@ ignore = ["E501"]
 "**/aria_snapshot_parser/parser.py" = ["N802", "N803"]
 "**/server.py" = ["N803"]
 
+[tool.pyright]
+pythonVersion = "3.10"
+include = ["src/playwright_proxy_mcp"]
+exclude = [
+    "**/generated/**",
+    "**/__pycache__",
+    "**/node_modules",
+    "**/.venv",
+]
+typeCheckingMode = "standard"
+reportMissingImports = true
+reportMissingTypeStubs = false
+reportReturnType = "error"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
