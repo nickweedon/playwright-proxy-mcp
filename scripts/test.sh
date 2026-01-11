@@ -222,17 +222,31 @@ else
 
     log_info "Source Code Complexity Summary:"
 
-    # Identify high-complexity functions (Grade C or worse)
-    HIGH_COMPLEXITY=$(echo "$COMPLEXITY_SUMMARY" | grep -E "^\s+[FMC]\s+\d+:\d+\s+\w+\s+-\s+[C-F]" || echo "")
+    # Identify complexity by grade
+    GRADE_D_F=$(echo "$COMPLEXITY_SUMMARY" | grep -E "^\s+[FMC]\s+\d+:\d+\s+\w+\s+-\s+[D-F]" || echo "")
+    GRADE_C=$(echo "$COMPLEXITY_SUMMARY" | grep -E "^\s+[FMC]\s+\d+:\d+\s+\w+\s+-\s+C\s" || echo "")
 
-    if [ -n "$HIGH_COMPLEXITY" ]; then
+    if [ -n "$GRADE_D_F" ]; then
         echo ""
-        log_warn "High complexity functions found (Grade C or worse):"
-        echo "$HIGH_COMPLEXITY" | head -n 10
-        HIGH_COUNT=$(echo "$HIGH_COMPLEXITY" | wc -l)
-        [ "$HIGH_COUNT" -gt 10 ] && log_info "... and $((HIGH_COUNT - 10)) more high-complexity functions"
+        log_warn "Very high complexity functions (Grade D-F) - REFACTORING RECOMMENDED:"
+        echo "$GRADE_D_F" | head -n 10
+        GRADE_D_F_COUNT=$(echo "$GRADE_D_F" | grep -c . || echo "0")
+        [ "$GRADE_D_F_COUNT" -gt 10 ] && log_info "... and $((GRADE_D_F_COUNT - 10)) more very high-complexity functions"
+        log_info "These functions should be refactored to reduce complexity rather than adding more tests."
         COMPLEXITY_STATUS="⚠️"
-    else
+    fi
+
+    if [ -n "$GRADE_C" ]; then
+        echo ""
+        log_warn "High complexity functions (Grade C) - consider refactoring and/or additional tests:"
+        echo "$GRADE_C" | head -n 10
+        GRADE_C_COUNT=$(echo "$GRADE_C" | grep -c . || echo "0")
+        [ "$GRADE_C_COUNT" -gt 10 ] && log_info "... and $((GRADE_C_COUNT - 10)) more high-complexity functions"
+        log_info "For Grade C: Either refactor to reduce complexity, add tests per proportionality check, or both."
+        COMPLEXITY_STATUS="${COMPLEXITY_STATUS:-⚠️}"
+    fi
+
+    if [ -z "$GRADE_D_F" ] && [ -z "$GRADE_C" ]; then
         log_success "No high complexity functions (all Grade B or better)"
         COMPLEXITY_STATUS="✅"
     fi
