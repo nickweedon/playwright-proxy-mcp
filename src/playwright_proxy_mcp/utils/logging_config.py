@@ -35,7 +35,18 @@ def setup_file_logging(
     """
     # Ensure log directory exists
     log_path = Path(log_file)
-    log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Try to create the log directory, fall back to /tmp if it fails
+    try:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        # Test if we can write to this location
+        test_file = log_path.parent / ".write_test"
+        test_file.touch()
+        test_file.unlink()
+    except (OSError, PermissionError):
+        # Fall back to /tmp for read-only filesystems (e.g., during tests)
+        log_path = Path(f"/tmp/{log_path.name}")
+        log_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Default format if not provided
     if format_string is None:

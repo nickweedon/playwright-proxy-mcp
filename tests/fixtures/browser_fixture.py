@@ -61,6 +61,8 @@ async def browser_setup():
             # Global configuration
             "PW_MCP_PROXY_BROWSER": "chrome",
             "PW_MCP_PROXY_HEADLESS": "true",
+            "PW_MCP_PROXY_ISOLATED": "true",  # Enable isolated mode to allow multiple test runs
+            "PW_MCP_PROXY_NO_SANDBOX": "true",  # Required for Chrome in containers
             "PW_MCP_PROXY_TIMEOUT_ACTION": "15000",
             "PW_MCP_PROXY_TIMEOUT_NAVIGATION": "5000",
             "PW_MCP_PROXY_CAPS": "vision,pdf",
