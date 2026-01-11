@@ -109,32 +109,31 @@ class TestPlaywrightBlobManager:
                 await manager.store_base64_data("invalid", "test.bin")
 
     @pytest.mark.asyncio
-    async def test_retrieve_blob(self, blob_config):
+    async def test_retrieve_blob(self, blob_config, tmp_path):
         """Test blob retrieval."""
         manager = PlaywrightBlobManager(blob_config)
 
         test_data = b"test binary data"
+        test_file = tmp_path / "test-blob.bin"
+        test_file.write_bytes(test_data)
 
-        # Mock the entire storage object to provide get_blob method
-        mock_storage = Mock()
-        mock_storage.get_blob = Mock(return_value=test_data)
-        manager.storage = mock_storage
-
-        result = await manager.retrieve_blob("blob://test-123.png")
-        assert result == test_data
+        # Mock get_file_path to return our test file
+        with patch.object(manager.storage, "get_file_path", return_value=test_file):
+            result = await manager.retrieve_blob("blob://test-123.png")
+            assert result == test_data
 
     @pytest.mark.asyncio
-    async def test_retrieve_blob_strips_prefix(self, blob_config):
+    async def test_retrieve_blob_strips_prefix(self, blob_config, tmp_path):
         """Test that blob:// prefix is stripped."""
         manager = PlaywrightBlobManager(blob_config)
 
-        # Mock the entire storage object
-        mock_storage = Mock()
-        mock_storage.get_blob = Mock(return_value=b"data")
-        manager.storage = mock_storage
+        test_file = tmp_path / "test-blob.bin"
+        test_file.write_bytes(b"data")
 
-        await manager.retrieve_blob("blob://test-123.png")
-        mock_storage.get_blob.assert_called_once_with("test-123.png")
+        # Mock get_file_path and verify it's called with the stripped ID
+        with patch.object(manager.storage, "get_file_path", return_value=test_file) as mock_get:
+            await manager.retrieve_blob("blob://test-123.png")
+            mock_get.assert_called_once_with("test-123.png")
 
     @pytest.mark.asyncio
     async def test_retrieve_blob_not_found(self, blob_config):
@@ -319,12 +318,12 @@ class TestPlaywrightBlobManager:
         # The function is imported inside cleanup_expired, so patch it at import location
         with patch(
             "mcp_mapped_resource_lib.maybe_cleanup_expired_blobs",
-            return_value=5,
+            return_value={"deleted_count": 5, "freed_bytes": 1024, "elapsed_seconds": 0.1},
         ) as mock_cleanup:
             result = await manager.cleanup_expired()
 
             assert result == 5
-            mock_cleanup.assert_called_once_with(blob_config["storage_root"])
+            mock_cleanup.assert_called_once_with(blob_config["storage_root"], blob_config["ttl_hours"])
 
     @pytest.mark.asyncio
     async def test_cleanup_expired_failure(self, blob_config):

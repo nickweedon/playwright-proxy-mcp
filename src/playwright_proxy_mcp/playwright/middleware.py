@@ -344,22 +344,26 @@ class BinaryInterceptionMiddleware:
         # Try dataclasses.asdict first (for dataclass objects)
         try:
             from dataclasses import asdict, is_dataclass
-            if is_dataclass(obj):
-                return asdict(obj)
+            if is_dataclass(obj) and not isinstance(obj, type):
+                return asdict(obj)  # type: ignore[arg-type]
         except (ImportError, TypeError):
             pass
 
         # Try Pydantic model_dump (for Pydantic v2 models)
-        if hasattr(obj, "model_dump"):
+        if hasattr(obj, "model_dump") and callable(getattr(obj, "model_dump", None)):
             try:
-                return obj.model_dump()
+                result = obj.model_dump()  # type: ignore[attr-defined]
+                if isinstance(result, dict):
+                    return result
             except Exception:
                 pass
 
         # Try Pydantic dict() (for Pydantic v1 models)
-        if hasattr(obj, "dict") and callable(obj.dict):
+        if hasattr(obj, "dict") and callable(getattr(obj, "dict", None)):
             try:
-                return obj.dict()
+                result = obj.dict()  # type: ignore[attr-defined]
+                if isinstance(result, dict):
+                    return result
             except Exception:
                 pass
 

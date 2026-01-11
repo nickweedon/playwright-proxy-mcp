@@ -210,12 +210,14 @@ def flatten_aria_tree(
     return result
 
 
-def format_output(data: dict[str, Any], output_format: str) -> str | list[dict[str, Any]]:
+def format_output(
+    data: dict[str, Any] | list[dict[str, Any]], output_format: str
+) -> str | dict[str, Any] | list[dict[str, Any]]:
     """
     Format data as JSON (raw) or YAML.
 
     Args:
-        data: Data to format
+        data: Data to format (dict or list of dicts)
         output_format: 'json' or 'yaml'
 
     Returns:

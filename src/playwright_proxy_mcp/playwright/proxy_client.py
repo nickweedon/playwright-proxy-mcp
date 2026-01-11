@@ -378,6 +378,8 @@ class PlaywrightProxyClient:
             logger.info("UPSTREAM_MCP → Discovering tools...")
 
             # List tools via FastMCP client
+            if self._client is None:
+                raise RuntimeError("Client not initialized")
             tools = await self._client.list_tools()
 
             # Convert to dictionary
@@ -432,9 +434,15 @@ class PlaywrightProxyClient:
             # Check for errors (FastMCP Client uses snake_case: is_error)
             if result.is_error:
                 # Extract error message from first content item
-                error_text = (
-                    result.content[0].text if result.content else "Unknown error"
-                )
+                from mcp.types import TextContent
+                error_text = "Unknown error"
+                if result.content:
+                    first_content = result.content[0]
+                    # Check if it's TextContent (or duck-typed with .text attribute)
+                    if isinstance(first_content, TextContent):
+                        error_text = first_content.text
+                    elif hasattr(first_content, 'text'):
+                        error_text = first_content.text  # type: ignore[attr-defined]
                 raise RuntimeError(f"Tool call failed: {error_text}")
 
             # Transform through middleware

@@ -50,51 +50,68 @@ class TestNavigationValidation:
 
     def test_validate_navigation_params_valid(self):
         """Test validation with valid parameters."""
-        # Should not raise
-        _validate_navigation_params(
-            url="https://example.com",
-            silent=False,
-            flatten=False,
-            jmespath=None,
+        # Should return None (no error)
+        result = _validate_navigation_params(
             output_format="yaml",
             offset=0,
-            limit=1000
+            limit=1000,
+            flatten=False,
+            jmespath_query=None,
+            cache_key=None
         )
+        assert result is None
 
     def test_validate_navigation_params_negative_offset(self):
         """Test validation rejects negative offset."""
-        with pytest.raises(ValueError, match="offset must be >= 0"):
-            _validate_navigation_params(
-                url="https://example.com",
-                offset=-1,
-                limit=1000
-            )
+        result = _validate_navigation_params(
+            output_format="yaml",
+            offset=-1,
+            limit=1000,
+            flatten=False,
+            jmespath_query=None,
+            cache_key=None
+        )
+        assert result is not None
+        assert "offset must be non-negative" in result
 
     def test_validate_navigation_params_invalid_limit_low(self):
         """Test validation rejects limit < 1."""
-        with pytest.raises(ValueError, match="limit must be between 1 and 10000"):
-            _validate_navigation_params(
-                url="https://example.com",
-                offset=0,
-                limit=0
-            )
+        result = _validate_navigation_params(
+            output_format="yaml",
+            offset=0,
+            limit=0,
+            flatten=False,
+            jmespath_query=None,
+            cache_key=None
+        )
+        assert result is not None
+        assert "limit must be between 1 and 10000" in result
 
     def test_validate_navigation_params_invalid_limit_high(self):
         """Test validation rejects limit > 10000."""
-        with pytest.raises(ValueError, match="limit must be between 1 and 10000"):
-            _validate_navigation_params(
-                url="https://example.com",
-                offset=0,
-                limit=10001
-            )
+        result = _validate_navigation_params(
+            output_format="yaml",
+            offset=0,
+            limit=10001,
+            flatten=False,
+            jmespath_query=None,
+            cache_key=None
+        )
+        assert result is not None
+        assert "limit must be between 1 and 10000" in result
 
     def test_validate_navigation_params_invalid_output_format(self):
         """Test validation rejects invalid output format."""
-        with pytest.raises(ValueError, match="output_format must be 'yaml' or 'json'"):
-            _validate_navigation_params(
-                url="https://example.com",
-                output_format="xml"
-            )
+        result = _validate_navigation_params(
+            output_format="xml",
+            offset=0,
+            limit=1000,
+            flatten=False,
+            jmespath_query=None,
+            cache_key=None
+        )
+        assert result is not None
+        assert "output_format must be 'json' or 'yaml'" in result
 
 
 class TestEvaluationValidation:
@@ -102,39 +119,27 @@ class TestEvaluationValidation:
 
     def test_validate_evaluation_params_valid(self):
         """Test validation with valid parameters."""
-        # Should not raise
-        _validate_evaluation_params(
-            code="return 1 + 1;",
-            offset=0,
-            limit=1000
-        )
+        # Should return None (no error)
+        result = _validate_evaluation_params(offset=0, limit=1000)
+        assert result is None
 
     def test_validate_evaluation_params_negative_offset(self):
         """Test validation rejects negative offset."""
-        with pytest.raises(ValueError, match="offset must be >= 0"):
-            _validate_evaluation_params(
-                code="return 1;",
-                offset=-1,
-                limit=1000
-            )
+        result = _validate_evaluation_params(offset=-1, limit=1000)
+        assert result is not None
+        assert "offset must be non-negative" in result
 
     def test_validate_evaluation_params_invalid_limit_low(self):
         """Test validation rejects limit < 1."""
-        with pytest.raises(ValueError, match="limit must be between 1 and 10000"):
-            _validate_evaluation_params(
-                code="return 1;",
-                offset=0,
-                limit=0
-            )
+        result = _validate_evaluation_params(offset=0, limit=0)
+        assert result is not None
+        assert "limit must be between 1 and 10000" in result
 
     def test_validate_evaluation_params_invalid_limit_high(self):
         """Test validation rejects limit > 10000."""
-        with pytest.raises(ValueError, match="limit must be between 1 and 10000"):
-            _validate_evaluation_params(
-                code="return 1;",
-                offset=0,
-                limit=10001
-            )
+        result = _validate_evaluation_params(offset=0, limit=10001)
+        assert result is not None
+        assert "limit must be between 1 and 10000" in result
 
 
 class TestBlobIdExtraction:
@@ -176,9 +181,12 @@ class TestErrorCreation:
 
     def test_create_navigation_error_basic(self):
         """Test basic navigation error creation."""
-        error = _create_navigation_error("Connection failed", "https://example.com")
+        error = _create_navigation_error(
+            url="https://example.com",
+            error="Connection failed"
+        )
 
-        assert isinstance(error, NavigationResponse)
+        assert isinstance(error, dict)
         assert error["success"] is False
         assert error["url"] == "https://example.com"
         assert error["error"] == "Connection failed"
@@ -187,8 +195,8 @@ class TestErrorCreation:
     def test_create_navigation_error_with_cache_key(self):
         """Test navigation error with cache key."""
         error = _create_navigation_error(
-            "Timeout error",
-            "https://example.com",
+            url="https://example.com",
+            error="Timeout error",
             cache_key="nav_123"
         )
 
@@ -197,11 +205,10 @@ class TestErrorCreation:
 
     def test_create_evaluation_error_basic(self):
         """Test basic evaluation error creation."""
-        error = _create_evaluation_error("Syntax error", "invalid code")
+        error = _create_evaluation_error(error="Syntax error")
 
-        assert isinstance(error, EvaluationResponse)
+        assert isinstance(error, dict)
         assert error["success"] is False
-        assert error["code"] == "invalid code"
         assert error["error"] == "Syntax error"
         assert error["result"] is None
 
@@ -216,7 +223,7 @@ class TestBrowserClick:
         proxy_client.call_tool = AsyncMock(return_value={"status": "clicked"})
 
         with patch("playwright_proxy_mcp.server.pool_manager", pool_manager):
-            result = await browser_click(
+            result = await browser_click.fn(
                 element="Login button",
                 ref="button#login"
             )
@@ -230,7 +237,7 @@ class TestBrowserClick:
         proxy_client.call_tool = AsyncMock(return_value={"status": "clicked"})
 
         with patch("playwright_proxy_mcp.server.pool_manager", pool_manager):
-            result = await browser_click(
+            result = await browser_click.fn(
                 element="Link",
                 ref="a#mylink",
                 button="right",
@@ -253,7 +260,7 @@ class TestBrowserType:
         proxy_client.call_tool = AsyncMock(return_value={"status": "typed"})
 
         with patch("playwright_proxy_mcp.server.pool_manager", pool_manager):
-            result = await browser_type(
+            result = await browser_type.fn(
                 element="Username field",
                 ref="input#username",
                 text="testuser"
@@ -274,7 +281,7 @@ class TestBrowserWaitFor:
         proxy_client.call_tool = AsyncMock(return_value={"status": "waited"})
 
         with patch("playwright_proxy_mcp.server.pool_manager", pool_manager):
-            result = await browser_wait_for(time=2.5)
+            result = await browser_wait_for.fn(time=2.5)
 
         assert result == {"status": "waited"}
         call_args = proxy_client.call_tool.call_args
@@ -286,7 +293,7 @@ class TestBrowserWaitFor:
         proxy_client.call_tool = AsyncMock(return_value={"status": "found"})
 
         with patch("playwright_proxy_mcp.server.pool_manager", pool_manager):
-            result = await browser_wait_for(text="Welcome")
+            result = await browser_wait_for.fn(text="Welcome")
 
         call_args = proxy_client.call_tool.call_args
         assert call_args[0][1]["text"] == "Welcome"
@@ -297,7 +304,7 @@ class TestBrowserWaitFor:
         proxy_client.call_tool = AsyncMock(return_value={"status": "gone"})
 
         with patch("playwright_proxy_mcp.server.pool_manager", pool_manager):
-            result = await browser_wait_for(textGone="Loading...")
+            result = await browser_wait_for.fn(textGone="Loading...")
 
         call_args = proxy_client.call_tool.call_args
         assert call_args[0][1]["textGone"] == "Loading..."
@@ -315,7 +322,7 @@ class TestBrowserScreenshot:
         )
 
         with patch("playwright_proxy_mcp.server.pool_manager", pool_manager):
-            blob_uri = await browser_take_screenshot(filename="test.png")
+            blob_uri = await browser_take_screenshot.fn(filename="test.png")
 
         assert blob_uri == "blob://123.png"
 
@@ -327,7 +334,7 @@ class TestBrowserScreenshot:
         )
 
         with patch("playwright_proxy_mcp.server.pool_manager", pool_manager):
-            blob_uri = await browser_take_screenshot(
+            blob_uri = await browser_take_screenshot.fn(
                 filename="full.png",
                 fullPage=True
             )
@@ -344,7 +351,7 @@ class TestBrowserScreenshot:
         )
 
         with patch("playwright_proxy_mcp.server.pool_manager", pool_manager):
-            blob_uri = await browser_take_screenshot(
+            blob_uri = await browser_take_screenshot.fn(
                 element="Logo",
                 ref="img#logo"
             )
@@ -362,7 +369,7 @@ class TestBrowserScreenshot:
 
         with patch("playwright_proxy_mcp.server.pool_manager", pool_manager):
             with pytest.raises(RuntimeError, match="Failed to extract blob URI"):
-                await browser_take_screenshot(filename="test.png")
+                await browser_take_screenshot.fn(filename="test.png")
 
 
 @pytest.mark.asyncio
@@ -377,7 +384,7 @@ class TestBrowserPdfSave:
         )
 
         with patch("playwright_proxy_mcp.server.pool_manager", pool_manager):
-            blob_uri = await browser_pdf_save(filename="test.pdf")
+            blob_uri = await browser_pdf_save.fn(filename="test.pdf")
 
         assert blob_uri == "blob://123.pdf"
 
@@ -389,7 +396,7 @@ class TestBrowserPdfSave:
         )
 
         with patch("playwright_proxy_mcp.server.pool_manager", pool_manager):
-            blob_uri = await browser_pdf_save()
+            blob_uri = await browser_pdf_save.fn()
 
         assert blob_uri == "blob://auto.pdf"
         call_args = proxy_client.call_tool.call_args

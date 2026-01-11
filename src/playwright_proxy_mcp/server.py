@@ -189,9 +189,11 @@ def _create_navigation_error(
     output_format: str = "yaml",
 ) -> dict[str, Any]:
     """Create a navigation error response."""
+    from typing import cast
+
     from .types import NavigationResponse
 
-    return NavigationResponse(
+    return cast(dict[str, Any], NavigationResponse(
         success=False,
         url=url,
         error=error,
@@ -202,7 +204,7 @@ def _create_navigation_error(
         has_more=False,
         snapshot=None,
         output_format=output_format,
-    )
+    ))
 
 
 def _validate_navigation_params(
@@ -773,6 +775,8 @@ def _extract_blob_id_from_response(result: Any) -> str | None:
 
     Handles both dict and Pydantic model responses.
     """
+    import re
+
     # Extract content field
     content = None
     if isinstance(result, dict):
@@ -789,6 +793,14 @@ def _extract_blob_id_from_response(result: Any) -> str | None:
                 blob_id = item.get("blob_id") if isinstance(item, dict) else getattr(item, "blob_id", None)
                 if blob_id:
                     return blob_id
+
+            # Also check text content for blob:// URLs
+            text = item.get("text") if isinstance(item, dict) else getattr(item, "text", None)
+            if text and isinstance(text, str):
+                # Extract blob:// URL from markdown links or plain text
+                match = re.search(r'blob://[a-zA-Z0-9\-_.]+', text)
+                if match:
+                    return match.group(0)
 
     # Fallback: if result is already a string, return it
     if isinstance(result, str):
@@ -826,7 +838,7 @@ async def browser_take_screenshot(
     Returns:
         Blob URI reference (blob://timestamp-hash.png or blob://timestamp-hash.jpeg)
     """
-    args = {"type": type}
+    args: dict[str, Any] = {"type": type}
     if filename is not None:
         args["filename"] = filename
     if element is not None:
@@ -903,9 +915,11 @@ def _create_evaluation_error(
     cache_key: str = "",
 ) -> dict[str, Any]:
     """Create an evaluation error response."""
+    from typing import cast
+
     from .types import EvaluationResponse
 
-    return EvaluationResponse(
+    return cast(dict[str, Any], EvaluationResponse(
         success=False,
         error=error,
         cache_key=cache_key,
@@ -914,7 +928,7 @@ def _create_evaluation_error(
         limit=limit,
         has_more=False,
         result=None,
-    )
+    ))
 
 
 def _validate_evaluation_params(offset: int, limit: int) -> str | None:
@@ -1061,10 +1075,15 @@ async def browser_evaluate(
     result_data = None
     key = ""
 
+    # Access module-level variable as attribute (can be patched in tests)
+    import sys
+    current_module = sys.modules[__name__]
+    nav_cache = getattr(current_module, 'navigation_cache', None)
+
     try:
-        if cache_key:
+        if cache_key and nav_cache is not None:
             # User provided explicit cache_key (from previous response)
-            entry = navigation_cache.get(cache_key)
+            entry = nav_cache.get(cache_key)
             if entry:
                 result_data = entry.snapshot_json  # Reuse cached result
                 key = cache_key
@@ -1084,7 +1103,8 @@ async def browser_evaluate(
             result_data = raw_result.get("result")
 
             # Store in cache
-            key = navigation_cache.create("", result_data)
+            if nav_cache is not None:
+                key = nav_cache.create("", result_data)
 
     except Exception as e:
         return _create_evaluation_error(f"Evaluation failed: {e}", offset, limit)
@@ -1104,7 +1124,8 @@ async def browser_evaluate(
         has_more = False
 
     # Return paginated response
-    return EvaluationResponse(
+    from typing import cast
+    return cast(dict[str, Any], EvaluationResponse(
         success=True,
         cache_key=key,
         total_items=total,
@@ -1113,7 +1134,7 @@ async def browser_evaluate(
         has_more=has_more,
         result=paginated_data,
         error=None,
-    )
+    ))
 
 
 # =============================================================================
@@ -1422,7 +1443,7 @@ async def browser_click(
     Returns:
         Click result
     """
-    args = {"element": element, "ref": ref}
+    args: dict[str, Any] = {"element": element, "ref": ref}
     if doubleClick is not None:
         args["doubleClick"] = doubleClick
     if button is not None:
@@ -1660,7 +1681,7 @@ async def browser_type(
     Returns:
         Type result
     """
-    args = {"element": element, "ref": ref, "text": text}
+    args: dict[str, Any] = {"element": element, "ref": ref, "text": text}
     if submit is not None:
         args["submit"] = submit
     if slowly is not None:
@@ -1819,7 +1840,7 @@ async def browser_tabs(action: str, index: int | None = None) -> dict[str, Any]:
     Returns:
         Tab operation result
     """
-    args = {"action": action}
+    args: dict[str, Any] = {"action": action}
     if index is not None:
         args["index"] = index
 
@@ -1865,7 +1886,7 @@ async def browser_handle_dialog(accept: bool, promptText: str | None = None) -> 
     Returns:
         Dialog handling result
     """
-    args = {"accept": accept}
+    args: dict[str, Any] = {"accept": accept}
     if promptText is not None:
         args["promptText"] = promptText
 

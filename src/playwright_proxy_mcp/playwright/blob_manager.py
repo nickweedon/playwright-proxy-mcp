@@ -120,7 +120,10 @@ class PlaywrightBlobManager:
             # Remove blob:// prefix if present
             clean_id = blob_id.replace("blob://", "")
 
-            data = self.storage.get_blob(clean_id)
+            # Get file path and read data
+            file_path = self.storage.get_file_path(clean_id)
+            with open(file_path, "rb") as f:
+                data = f.read()
             logger.debug(f"Retrieved blob {blob_id} ({len(data)} bytes)")
             return data
 
@@ -146,7 +149,7 @@ class PlaywrightBlobManager:
             clean_id = blob_id.replace("blob://", "")
 
             metadata = self.storage.get_metadata(clean_id)
-            return metadata
+            return dict(metadata)
 
         except Exception as e:
             logger.error(f"Failed to get metadata for blob {blob_id}: {e}")
@@ -186,7 +189,7 @@ class PlaywrightBlobManager:
 
                     if tags:
                         blob_tags = metadata.get("tags", [])
-                        if not any(tag in blob_tags for tag in tags):
+                        if blob_tags and not any(tag in blob_tags for tag in tags):
                             continue
 
                     results.append(
@@ -243,7 +246,10 @@ class PlaywrightBlobManager:
         try:
             from mcp_mapped_resource_lib import maybe_cleanup_expired_blobs
 
-            deleted_count = maybe_cleanup_expired_blobs(self.config["storage_root"])
+            result = maybe_cleanup_expired_blobs(
+                self.config["storage_root"], self.config["ttl_hours"]
+            )
+            deleted_count = result["deleted_count"] if result else 0
             if deleted_count > 0:
                 logger.info(f"Cleaned up {deleted_count} expired blobs")
             return deleted_count

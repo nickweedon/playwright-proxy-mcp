@@ -20,8 +20,8 @@ from .process_manager import PlaywrightProcessManager
 from .proxy_client import PlaywrightProxyClient
 
 if TYPE_CHECKING:
-    from .blob_manager import BlobManager
-    from .middleware import BinaryInterceptMiddleware
+    from .blob_manager import BlobManager  # type: ignore[attr-defined]
+    from .middleware import BinaryInterceptMiddleware  # type: ignore[attr-defined]
 
 logger = logging.getLogger(__name__)
 
@@ -180,7 +180,7 @@ class BrowserPool:
             # Register process with process manager for monitoring
             logger.debug(f"  [4/4] Registering process with process manager for instance {instance_id}")
             if proxy_client._client and hasattr(proxy_client._client, "_transport"):
-                transport = proxy_client._client._transport
+                transport = proxy_client._client._transport  # type: ignore[attr-defined]
                 if hasattr(transport, "_process"):
                     await process_manager.set_process(transport._process)
                     logger.debug(f"  Process registered (PID: {transport._process.pid if hasattr(transport._process, 'pid') else 'unknown'})")

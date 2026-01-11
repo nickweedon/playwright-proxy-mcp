@@ -2,6 +2,8 @@
 
 This document provides essential context and guidelines for Claude when working with this MCP proxy server project.
 
+## ⚠️ CRITICAL: NEVER UPDATE TESTS TO MATCH EXPECTATIONS UNLESS YOU CAN PROVE THAT THE TEST IS WRONG
+
 ## ⚠️ CRITICAL: ALWAYS USE `uv` FOR PYTHON COMMANDS
 
 ## Tool Usage

@@ -61,7 +61,7 @@ class NavigationResponse(TypedDict, total=False):
     offset: int
     limit: int
     has_more: bool
-    snapshot: str | None | dict[str, Any]
+    snapshot: str | dict[str, Any] | list[dict[str, Any]] | None
     error: str | None
     output_format: str
 
