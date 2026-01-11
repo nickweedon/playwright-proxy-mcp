@@ -209,11 +209,10 @@ else
 
     # Get source complexity
     uv run radon cc -j src/playwright_proxy_mcp > /tmp/src_complexity.json
-    uv run radon cc -j tests > /tmp/test_complexity.json
 
     # Display human-readable complexity summary
     log_info "Source Code Complexity Summary:"
-    uv run radon cc src/playwright_proxy_mcp -a -s 2>/dev/null | head -n 50 || true
+    uv run radon cc src/playwright_proxy_mcp -a -s | head -n 50 || true
 
     # Identify high-complexity functions (Grade C or worse)
     HIGH_COMPLEXITY=$(uv run radon cc src/playwright_proxy_mcp -s 2>/dev/null | grep -E "^\s+[FMC]\s+\d+:\d+\s+\w+\s+-\s+[C-F]" || echo "")
