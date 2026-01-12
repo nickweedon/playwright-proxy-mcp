@@ -93,3 +93,4 @@ For modules below 80% test proportionality:
 - **Linting**: All ruff errors must be resolved. Use `uv run ruff check --fix src/` for auto-fixable issues.
 - **Tests**: Failing tests block the pipeline. Investigate root cause before proceeding.
 - **Warnings**: Non-blocking warnings should be addressed in a follow-up session if not immediately actionable.
+

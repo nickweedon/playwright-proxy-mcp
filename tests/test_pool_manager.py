@@ -166,9 +166,16 @@ class TestBrowserPool:
 
         with patch(
             "playwright_proxy_mcp.playwright.pool_manager.PlaywrightProxyClient"
-        ) as MockClient:
+        ) as MockClient, patch(
+            "playwright_proxy_mcp.playwright.pool_manager.PlaywrightProcessManager"
+        ) as MockProcessManager:
             mock_client = AsyncMock()
+            mock_client.start = AsyncMock()
             MockClient.return_value = mock_client
+
+            mock_process = AsyncMock()
+            mock_process.set_process = AsyncMock()
+            MockProcessManager.return_value = mock_process
 
             await browser_pool._create_instance(instance_cfg, mock_blob_manager, mock_middleware)
 
@@ -176,6 +183,7 @@ class TestBrowserPool:
             instance = browser_pool.instances["0"]
             assert instance.instance_id == "0"
             assert instance.alias is None
+            mock_client.start.assert_awaited_once()
 
     async def test_lease_instance_fifo(self, browser_pool, mock_blob_manager, mock_middleware):
         # Create mock instances with proxy_client attribute

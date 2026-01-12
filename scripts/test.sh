@@ -5,6 +5,11 @@ set -e  # Exit on error
 # Runs linting, type checking, tests, code duplication detection, and complexity
 # analysis with test coverage proportionality validation.
 #
+# Complexity Grade Recommendations:
+#   A & B: Add tests if needed based on proportionality check
+#   C:     Consider refactoring and/or more tests per proportionality check
+#   D-F:   Recommend refactoring to reduce complexity
+#
 # Usage:
 #   ./scripts/test.sh [OPTIONS]
 #
@@ -222,9 +227,10 @@ else
 
     log_info "Source Code Complexity Summary:"
 
-    # Identify complexity by grade
-    GRADE_D_F=$(echo "$COMPLEXITY_SUMMARY" | grep -E "^\s+[FMC]\s+\d+:\d+\s+\w+\s+-\s+[D-F]" || echo "")
-    GRADE_C=$(echo "$COMPLEXITY_SUMMARY" | grep -E "^\s+[FMC]\s+\d+:\d+\s+\w+\s+-\s+C\s" || echo "")
+    # Identify complexity by grade using pattern: "    F 123:0 function_name - D (22)"
+    # The pattern matches: whitespace, type (F/M/C), line:col, name (with underscores), dash, grade, score
+    GRADE_D_F=$(echo "$COMPLEXITY_SUMMARY" | grep -E "^\s+[FMC]\s+[0-9]+:[0-9]+\s+.+\s+-\s+[DEF]\s" || echo "")
+    GRADE_C=$(echo "$COMPLEXITY_SUMMARY" | grep -E "^\s+[FMC]\s+[0-9]+:[0-9]+\s+.+\s+-\s+C\s" || echo "")
 
     if [ -n "$GRADE_D_F" ]; then
         echo ""
@@ -232,22 +238,23 @@ else
         echo "$GRADE_D_F" | head -n 10
         GRADE_D_F_COUNT=$(echo "$GRADE_D_F" | grep -c . || echo "0")
         [ "$GRADE_D_F_COUNT" -gt 10 ] && log_info "... and $((GRADE_D_F_COUNT - 10)) more very high-complexity functions"
-        log_info "These functions should be refactored to reduce complexity rather than adding more tests."
+        log_info "Grade D-F functions should be refactored to reduce complexity."
         COMPLEXITY_STATUS="⚠️"
     fi
 
     if [ -n "$GRADE_C" ]; then
         echo ""
-        log_warn "High complexity functions (Grade C) - consider refactoring and/or additional tests:"
+        log_warn "Moderate complexity functions (Grade C) - consider refactoring and/or additional tests:"
         echo "$GRADE_C" | head -n 10
         GRADE_C_COUNT=$(echo "$GRADE_C" | grep -c . || echo "0")
-        [ "$GRADE_C_COUNT" -gt 10 ] && log_info "... and $((GRADE_C_COUNT - 10)) more high-complexity functions"
-        log_info "For Grade C: Either refactor to reduce complexity, add tests per proportionality check, or both."
+        [ "$GRADE_C_COUNT" -gt 10 ] && log_info "... and $((GRADE_C_COUNT - 10)) more moderate-complexity functions"
+        log_info "Grade C: Consider refactoring and/or add tests per proportionality check."
         COMPLEXITY_STATUS="${COMPLEXITY_STATUS:-⚠️}"
     fi
 
     if [ -z "$GRADE_D_F" ] && [ -z "$GRADE_C" ]; then
-        log_success "No high complexity functions (all Grade B or better)"
+        log_success "All functions are Grade A or B (low complexity)"
+        log_info "Grade A-B: Add tests if needed based on proportionality check."
         COMPLEXITY_STATUS="✅"
     fi
 fi
@@ -263,8 +270,8 @@ else
     # Get test complexity (reuse src complexity from previous step)
     uv run radon cc -j tests/ > /tmp/test_complexity.json
 
-    # Inline Python for proportionality analysis
-    uv run python - << 'ANALYZE_EOF'
+    # Inline Python for proportionality analysis (use || true to prevent set -e exit)
+    uv run python - << 'ANALYZE_EOF' || true
 import json
 import sys
 
@@ -306,9 +313,12 @@ for module, complexity in sorted(module_complexity.items(), key=lambda x: x[1], 
         if ratio < threshold:
             issues.append((module, additional_needed))
 
-sys.exit(len(issues))
+# Write exit code to temp file since || true masks the exit code
+with open('/tmp/proportionality_exit', 'w') as f:
+    f.write(str(len(issues)))
+sys.stdout.flush()
 ANALYZE_EOF
-    PROPORTIONALITY_EXIT=$?
+    PROPORTIONALITY_EXIT=$(cat /tmp/proportionality_exit)
 
     echo ""
     if [ "$PROPORTIONALITY_EXIT" -eq 0 ]; then
@@ -316,6 +326,10 @@ ANALYZE_EOF
         PROPORTIONALITY_STATUS="✅"
     else
         log_warn "$PROPORTIONALITY_EXIT module(s) need additional tests to meet 80% guideline"
+        log_info "Recommendation: Add tests based on complexity grade:"
+        log_info "  Grade A-B: Add tests if needed based on 'Needed' column above"
+        log_info "  Grade C:   Consider refactoring and/or add tests"
+        log_info "  Grade D-F: Recommend refactoring to reduce complexity"
         PROPORTIONALITY_STATUS="⚠️"
     fi
 fi
