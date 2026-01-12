@@ -140,7 +140,7 @@ CMD ["playwright-proxy-mcp"]
 # Stage 5: Development stage with all files and additional tools
 FROM python:${PYTHON_VERSION}-slim AS development
 
-# Install system dependencies including Java for PMD and wget for downloading tools
+# Install system dependencies including Java for PMD, wget for downloading tools, and Go for mcptools
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     curl \
@@ -151,6 +151,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gnupg \
     lsb-release \
     default-jre \
+    golang-go \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Docker CLI for Docker-outside-of-Docker (DooD) support
@@ -191,6 +192,10 @@ RUN wget -q "https://github.com/pmd/pmd/releases/download/pmd_releases%2F${PMD_V
     mv /opt/pmd-bin-${PMD_VERSION} /opt/pmd && \
     ln -s /opt/pmd/bin/pmd /usr/local/bin/pmd && \
     rm /tmp/pmd.zip
+
+# Install mcptools for MCP server testing
+RUN go install github.com/f/mcptools/cmd/mcptools@latest && \
+    ln -s /root/go/bin/mcptools /usr/local/bin/mcptools
 
 # Install uv package manager for root
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
