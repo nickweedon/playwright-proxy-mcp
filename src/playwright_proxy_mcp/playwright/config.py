@@ -139,85 +139,72 @@ def _get_int_env(key: str, default: int) -> int:
         return default
 
 
+# Configuration key mappings for _apply_config_overrides
+# Each tuple: (env_suffix, config_key, value_type)
+# value_type: "str", "bool", "int_action", "int_navigation"
+_CONFIG_KEY_MAPPINGS: list[tuple[str, str, str]] = [
+    # Browser settings
+    ("BROWSER", "browser", "str"),
+    ("HEADLESS", "headless", "bool"),
+    ("NO_SANDBOX", "no_sandbox", "bool"),
+    ("DEVICE", "device", "str"),
+    ("VIEWPORT_SIZE", "viewport_size", "str"),
+    # Profile/storage
+    ("ISOLATED", "isolated", "bool"),
+    ("USER_DATA_DIR", "user_data_dir", "str"),
+    ("STORAGE_STATE", "storage_state", "str"),
+    # Network
+    ("ALLOWED_ORIGINS", "allowed_origins", "str"),
+    ("BLOCKED_ORIGINS", "blocked_origins", "str"),
+    ("PROXY_SERVER", "proxy_server", "str"),
+    # Capabilities
+    ("CAPS", "caps", "str"),
+    # Output
+    ("SAVE_SESSION", "save_session", "bool"),
+    ("SAVE_TRACE", "save_trace", "bool"),
+    ("SAVE_VIDEO", "save_video", "str"),
+    ("OUTPUT_DIR", "output_dir", "str"),
+    # Timeouts
+    ("TIMEOUT_ACTION", "timeout_action", "int_action"),
+    ("TIMEOUT_NAVIGATION", "timeout_navigation", "int_navigation"),
+    # Images
+    ("IMAGE_RESPONSES", "image_responses", "str"),
+    # Stealth
+    ("USER_AGENT", "user_agent", "str"),
+    ("INIT_SCRIPT", "init_script", "str"),
+    ("IGNORE_HTTPS_ERRORS", "ignore_https_errors", "bool"),
+    # Extension
+    ("EXTENSION", "extension", "bool"),
+    ("EXTENSION_TOKEN", "extension_token", "str"),
+    # WSL Windows
+    ("WSL_WINDOWS", "wsl_windows", "bool"),
+]
+
+
 def _apply_config_overrides(config: PlaywrightConfig, prefix: str) -> None:
     """
     Apply configuration overrides from environment variables with given prefix.
 
     This helper reduces code duplication across global, pool, and instance config parsing.
+    Uses a data-driven approach with _CONFIG_KEY_MAPPINGS to reduce cyclomatic complexity.
 
     Args:
         config: Config dict to update in-place
         prefix: Environment variable prefix (e.g., "PW_MCP_PROXY_" or "PW_MCP_PROXY__POOL_")
     """
-    # Browser settings
-    if browser := os.getenv(f"{prefix}BROWSER"):
-        config["browser"] = browser
-    if os.getenv(f"{prefix}HEADLESS"):
-        config["headless"] = _get_bool_env(f"{prefix}HEADLESS", False)
-    if os.getenv(f"{prefix}NO_SANDBOX"):
-        config["no_sandbox"] = _get_bool_env(f"{prefix}NO_SANDBOX", False)
-    if device := os.getenv(f"{prefix}DEVICE"):
-        config["device"] = device
-    if viewport_size := os.getenv(f"{prefix}VIEWPORT_SIZE"):
-        config["viewport_size"] = viewport_size
+    for env_suffix, config_key, value_type in _CONFIG_KEY_MAPPINGS:
+        env_var = f"{prefix}{env_suffix}"
+        if os.getenv(env_var) is None:
+            continue
 
-    # Profile/storage
-    if os.getenv(f"{prefix}ISOLATED"):
-        config["isolated"] = _get_bool_env(f"{prefix}ISOLATED", False)
-    if user_data_dir := os.getenv(f"{prefix}USER_DATA_DIR"):
-        config["user_data_dir"] = user_data_dir
-    if storage_state := os.getenv(f"{prefix}STORAGE_STATE"):
-        config["storage_state"] = storage_state
-
-    # Network
-    if allowed_origins := os.getenv(f"{prefix}ALLOWED_ORIGINS"):
-        config["allowed_origins"] = allowed_origins
-    if blocked_origins := os.getenv(f"{prefix}BLOCKED_ORIGINS"):
-        config["blocked_origins"] = blocked_origins
-    if proxy_server := os.getenv(f"{prefix}PROXY_SERVER"):
-        config["proxy_server"] = proxy_server
-
-    # Capabilities
-    if caps := os.getenv(f"{prefix}CAPS"):
-        config["caps"] = caps
-
-    # Output
-    if os.getenv(f"{prefix}SAVE_SESSION"):
-        config["save_session"] = _get_bool_env(f"{prefix}SAVE_SESSION", False)
-    if os.getenv(f"{prefix}SAVE_TRACE"):
-        config["save_trace"] = _get_bool_env(f"{prefix}SAVE_TRACE", False)
-    if save_video := os.getenv(f"{prefix}SAVE_VIDEO"):
-        config["save_video"] = save_video
-    if output_dir := os.getenv(f"{prefix}OUTPUT_DIR"):
-        config["output_dir"] = output_dir
-
-    # Timeouts
-    if os.getenv(f"{prefix}TIMEOUT_ACTION"):
-        config["timeout_action"] = _get_int_env(f"{prefix}TIMEOUT_ACTION", 15000)
-    if os.getenv(f"{prefix}TIMEOUT_NAVIGATION"):
-        config["timeout_navigation"] = _get_int_env(f"{prefix}TIMEOUT_NAVIGATION", 5000)
-
-    # Images
-    if image_responses := os.getenv(f"{prefix}IMAGE_RESPONSES"):
-        config["image_responses"] = image_responses
-
-    # Stealth
-    if user_agent := os.getenv(f"{prefix}USER_AGENT"):
-        config["user_agent"] = user_agent
-    if init_script := os.getenv(f"{prefix}INIT_SCRIPT"):
-        config["init_script"] = init_script
-    if os.getenv(f"{prefix}IGNORE_HTTPS_ERRORS"):
-        config["ignore_https_errors"] = _get_bool_env(f"{prefix}IGNORE_HTTPS_ERRORS", False)
-
-    # Extension
-    if os.getenv(f"{prefix}EXTENSION"):
-        config["extension"] = _get_bool_env(f"{prefix}EXTENSION", False)
-    if extension_token := os.getenv(f"{prefix}EXTENSION_TOKEN"):
-        config["extension_token"] = extension_token
-
-    # WSL Windows
-    if os.getenv(f"{prefix}WSL_WINDOWS"):
-        config["wsl_windows"] = _get_bool_env(f"{prefix}WSL_WINDOWS", False)
+        if value_type == "str":
+            config[config_key] = os.getenv(env_var)  # type: ignore[literal-required]
+        elif value_type == "bool":
+            config[config_key] = _get_bool_env(env_var, False)  # type: ignore[literal-required]
+        elif value_type == "int_action":
+            config[config_key] = _get_int_env(env_var, 15000)  # type: ignore[literal-required]
+        elif value_type == "int_navigation":
+            config[config_key] = _get_int_env(env_var, 5000)  # type: ignore[literal-required]
 
 
 def should_use_windows_node() -> bool:

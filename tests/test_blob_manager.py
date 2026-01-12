@@ -389,3 +389,45 @@ class TestPlaywrightBlobManager:
         # Should not raise an error
         await manager.stop_cleanup_task()
         assert manager._cleanup_task is None
+
+    @pytest.mark.asyncio
+    async def test_store_base64_data_with_tags(self, blob_config):
+        """Test storing base64 data with custom tags."""
+        manager = PlaywrightBlobManager(blob_config)
+
+        # Create test data
+        test_data = b"Test content"
+        base64_data = base64.b64encode(test_data).decode()
+        data_uri = f"data:image/png;base64,{base64_data}"
+
+        with patch.object(manager.storage, "upload_blob") as mock_upload:
+            mock_upload.return_value = {
+                "blob_id": "blob_test123",
+                "created_at": "2024-01-01T00:00:00Z",
+            }
+
+            result = await manager.store_base64_data(
+                base64_data=data_uri, filename="test.png", tags=["test", "custom"]
+            )
+
+            assert result["blob_id"] == "blob_test123"
+            # Verify tags were passed
+            call_args = mock_upload.call_args
+            assert call_args[1]["tags"] == ["test", "custom"]
+
+    @pytest.mark.asyncio
+    async def test_retrieve_blob_without_prefix(self, blob_config, temp_storage):
+        """Test retrieving blob without blob:// prefix."""
+        manager = PlaywrightBlobManager(blob_config)
+
+        test_data = b"Test content"
+
+        # Create a test blob file
+        blob_path = Path(temp_storage) / "test123.png"
+        blob_path.write_bytes(test_data)
+
+        with patch.object(manager.storage, "get_file_path", return_value=str(blob_path)):
+            # Should work with just the blob_id (no prefix)
+            data = await manager.retrieve_blob("test123.png")
+
+            assert data == test_data

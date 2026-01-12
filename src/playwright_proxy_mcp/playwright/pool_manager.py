@@ -250,14 +250,21 @@ class BrowserPool:
 
         # Acquire lease from queue
         if instance_key:
-            # Lease specific instance (blocks until available)
-            try:
-                key, instance, lease = await self.lease_queue.take(instance_key)
-            except KeyError:
+            # Validate instance key exists before attempting to lease
+            # Check both instance IDs and aliases
+            valid_keys = set(self.instances.keys())
+            for inst in self.instances.values():
+                if inst.alias:
+                    valid_keys.add(inst.alias)
+
+            if instance_key not in valid_keys:
                 raise ValueError(
                     f"Pool '{self.name}': Instance '{instance_key}' not found "
                     f"(available IDs: {list(self.instances.keys())})"
                 )
+
+            # Lease specific instance (blocks until available)
+            key, instance, lease = await self.lease_queue.take(instance_key)
         else:
             # Lease first available (FIFO)
             key, instance, lease = await self.lease_queue.get()

@@ -298,59 +298,264 @@ class TestBinaryInterceptionMiddleware:
 
         assert result["pdf"] == "blob://test.pdf"
 
+
+class TestBinaryInterceptionMiddlewareExtended:
+    """Extended tests for BinaryInterceptionMiddleware."""
+
+    @pytest.fixture
+    def mock_blob_manager(self):
+        manager = Mock()
+        manager.store_base64_data = AsyncMock()
+        return manager
+
+    @pytest.fixture
+    def middleware(self, mock_blob_manager):
+        return BinaryInterceptionMiddleware(mock_blob_manager, size_threshold_kb=50)
+
+    def test_get_extension_from_data_uri_gif(self, middleware):
+        """Test extracting .gif extension from data URI."""
+        data_uri = "data:image/gif;base64,..."
+        assert middleware._get_extension_from_data_uri(data_uri) == ".gif"
+
+    def test_get_extension_from_data_uri_svg(self, middleware):
+        """Test extracting .svg extension from data URI."""
+        data_uri = "data:image/svg+xml;base64,..."
+        assert middleware._get_extension_from_data_uri(data_uri) == ".svg"
+
+    def test_get_extension_from_data_uri_mp4(self, middleware):
+        """Test extracting .mp4 extension from data URI."""
+        data_uri = "data:video/mp4;base64,..."
+        assert middleware._get_extension_from_data_uri(data_uri) == ".mp4"
+
     @pytest.mark.asyncio
-    async def test_intercept_content_array_with_pydantic_models(self, middleware, mock_blob_manager):
-        """Test intercepting content array with Pydantic model objects (not dicts)."""
+    async def test_should_store_as_blob_very_short_string(self, middleware):
+        """Test that very short strings are not stored as blobs."""
+        result = await middleware._should_store_as_blob("ab")
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_should_store_as_blob_with_whitespace(self, middleware):
+        """Test that strings with whitespace are not detected as base64."""
+        result = await middleware._should_store_as_blob("This has spaces")
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_intercept_response_list_type(self, middleware):
+        """Test that list responses are processed."""
+        response = [{"status": "ok"}]
+        result = await middleware.intercept_response("playwright_screenshot", response)
+        assert result == response
+
+    @pytest.mark.asyncio
+    async def test_intercept_response_empty_dict(self, middleware):
+        """Test that empty dict responses are returned unchanged."""
+        response = {}
+        result = await middleware.intercept_response("any_tool", response)
+        assert result == {}
+
+    def test_object_to_dict_with_dataclass(self, middleware):
+        """Test _object_to_dict converts dataclass to dict."""
         from dataclasses import dataclass
 
-        # Create a mock Pydantic-like model with attributes
         @dataclass
-        class BinaryContent:
-            """Mock BinaryContent matching FastMCP's structure."""
-            type: str
-            data: str
-            mimeType: str
+        class TestData:
+            value: str
+            count: int
 
-        # Create large base64 data
-        large_data = b"x" * (60 * 1024)
-        base64_data = base64.b64encode(large_data).decode("utf-8")
+        obj = TestData(value="test", count=42)
+        result = middleware._object_to_dict(obj)
 
-        # Create a mock CallToolResult with BinaryContent objects (not dicts)
+        assert result == {"value": "test", "count": 42}
+
+    @pytest.mark.asyncio
+    async def test_intercept_response_with_error_flag(self, middleware):
+        """Test intercepting response that has is_error=True."""
+        from dataclasses import dataclass
+        from typing import Any
+
         @dataclass
         class MockCallToolResult:
-            content: list
+            content: list[Any]
             is_error: bool = False
 
-        binary_item = BinaryContent(
-            type="image",
-            data=base64_data,
-            mimeType="image/png"
-        )
-
         mock_result = MockCallToolResult(
-            content=[binary_item],
-            is_error=False
+            content=[{"type": "text", "text": "Error message"}],
+            is_error=True,
         )
 
-        # Mock blob storage
+        result = await middleware.intercept_response("some_tool", mock_result)
+
+        assert isinstance(result, dict)
+        assert result["is_error"] is True
+
+    @pytest.mark.asyncio
+    async def test_intercept_response_preserves_structure(self, middleware):
+        """Test that intercept_response preserves overall response structure."""
+        response = {
+            "status": "success",
+            "metadata": {"timestamp": "2024-01-01", "count": 5},
+            "items": [1, 2, 3],
+        }
+
+        result = await middleware.intercept_response("some_tool", response)
+
+        assert result == response
+
+    @pytest.mark.asyncio
+    async def test_conditional_binary_tool_with_binary_data(self, middleware, mock_blob_manager):
+        """Test conditional binary tool processes binary data."""
+        large_data = b"x" * (60 * 1024)
+        base64_data = base64.b64encode(large_data).decode("utf-8")
+        data_uri = f"data:image/png;base64,{base64_data}"
+
+        response = {"data": data_uri}
+
         mock_blob_manager.store_base64_data.return_value = {
-            "blob_id": "blob://test-123.png",
+            "blob_id": "blob://test.png",
             "size_bytes": len(large_data),
             "mime_type": "image/png",
             "created_at": "2024-01-01T00:00:00Z",
             "expires_at": "2024-01-02T00:00:00Z",
         }
 
-        result = await middleware.intercept_response("browser_take_screenshot", mock_result)
+        result = await middleware.intercept_response("playwright_download", response)
 
-        # Should have transformed the BinaryContent object to a blob reference dict
-        assert isinstance(result, dict)
-        assert "content" in result
-        assert len(result["content"]) == 1
-        assert result["content"][0]["type"] == "blob"
-        assert result["content"][0]["blob_id"] == "blob://test-123.png"
-        assert result["content"][0]["size_kb"] == len(large_data) // 1024
-        assert result["content"][0]["mime_type"] == "image/png"
+        assert result["data"] == "blob://test.png"
 
-        # Verify blob storage was called
-        mock_blob_manager.store_base64_data.assert_called_once()
+    @pytest.mark.asyncio
+    async def test_should_store_as_blob_empty_string(self, middleware):
+        """Test _should_store_as_blob with empty string."""
+        result = await middleware._should_store_as_blob("")
+        assert result is False
+
+    def test_object_to_dict_nested(self, middleware):
+        """Test _object_to_dict with nested objects."""
+        from dataclasses import dataclass
+
+        @dataclass
+        class Inner:
+            value: str
+
+        @dataclass
+        class Outer:
+            inner: Inner
+            name: str
+
+        obj = Outer(inner=Inner(value="nested"), name="outer")
+        result = middleware._object_to_dict(obj)
+
+        assert result == {"inner": {"value": "nested"}, "name": "outer"}
+
+    @pytest.mark.asyncio
+    async def test_intercept_response_multiple_binary_fields(self, middleware, mock_blob_manager):
+        """Test intercepting response with multiple binary fields."""
+        large_data = b"x" * (60 * 1024)
+        base64_data = base64.b64encode(large_data).decode("utf-8")
+        data_uri = f"data:image/png;base64,{base64_data}"
+
+        response = {"screenshot1": data_uri, "screenshot2": data_uri}
+
+        mock_blob_manager.store_base64_data.return_value = {
+            "blob_id": "blob://test.png",
+            "size_bytes": len(large_data),
+            "mime_type": "image/png",
+            "created_at": "2024-01-01T00:00:00Z",
+            "expires_at": "2024-01-02T00:00:00Z",
+        }
+
+        result = await middleware.intercept_response("playwright_screenshot", response)
+
+        # Both fields should be replaced
+        assert result["screenshot1"] == "blob://test.png"
+        assert result["screenshot2"] == "blob://test.png"
+
+    def test_get_extension_from_data_uri_octet_stream(self, middleware):
+        """Test extension for octet-stream MIME type returns .bin (unknown type)."""
+        data_uri = "data:application/octet-stream;base64,..."
+        assert middleware._get_extension_from_data_uri(data_uri) == ".bin"
+
+    def test_get_extension_from_data_uri_tar(self, middleware):
+        """Test extension for tar MIME type."""
+        data_uri = "data:application/x-tar;base64,..."
+        assert middleware._get_extension_from_data_uri(data_uri) == ".tar"
+
+    def test_get_extension_from_data_uri_zip(self, middleware):
+        """Test extension for zip MIME type."""
+        data_uri = "data:application/zip;base64,..."
+        assert middleware._get_extension_from_data_uri(data_uri) == ".zip"
+
+    @pytest.mark.asyncio
+    async def test_should_store_as_blob_with_special_chars(self, middleware):
+        """Test that strings with special characters are not stored as base64."""
+        result = await middleware._should_store_as_blob("Hello! @#$%^&*()")
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_should_store_as_blob_url_string(self, middleware):
+        """Test that URL strings are not stored as blobs."""
+        result = await middleware._should_store_as_blob("https://example.com/image.png")
+        assert result is False
+
+    def test_object_to_dict_with_simple_dataclass(self, middleware):
+        """Test _object_to_dict with a simple dataclass."""
+        from dataclasses import dataclass
+
+        @dataclass
+        class Item:
+            name: str
+            count: int
+
+        item = Item(name="test", count=5)
+        result = middleware._object_to_dict(item)
+
+        assert result == {"name": "test", "count": 5}
+
+    def test_object_to_dict_with_optional_fields(self, middleware):
+        """Test _object_to_dict with dataclass containing optional fields."""
+        from dataclasses import dataclass
+        from typing import Optional
+
+        @dataclass
+        class OptionalData:
+            required: str
+            optional: Optional[str] = None
+
+        obj = OptionalData(required="value")
+        result = middleware._object_to_dict(obj)
+
+        assert result == {"required": "value", "optional": None}
+
+    def test_get_extension_from_data_uri_svg(self, middleware):
+        """Test extension for SVG MIME type."""
+        data_uri = "data:image/svg+xml;base64,..."
+        assert middleware._get_extension_from_data_uri(data_uri) == ".svg"
+
+    def test_get_extension_from_data_uri_webp(self, middleware):
+        """Test extension for WebP MIME type."""
+        data_uri = "data:image/webp;base64,..."
+        assert middleware._get_extension_from_data_uri(data_uri) == ".webp"
+
+    @pytest.mark.asyncio
+    async def test_should_store_as_blob_empty_base64(self, middleware):
+        """Test that empty base64 data is not stored as blob (below threshold)."""
+        # Empty base64 data
+        result = await middleware._should_store_as_blob("data:image/png;base64,")
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_intercept_response_preserves_non_binary_fields(self, middleware, mock_blob_manager):
+        """Test that non-binary fields are preserved during interception."""
+        response = {
+            "status": "success",
+            "count": 42,
+            "url": "https://example.com",
+            "nested": {"key": "value"}
+        }
+
+        result = await middleware.intercept_response("some_tool", response)
+
+        # All non-binary fields should be preserved
+        assert result["status"] == "success"
+        assert result["count"] == 42
+        assert result["url"] == "https://example.com"
+        assert result["nested"] == {"key": "value"}

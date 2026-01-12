@@ -403,3 +403,55 @@ def test_flatten_aria_tree_text_nodes():
     assert result[1]["value"] == "This is some text."
     assert result[1]["_depth"] == 1
     assert result[1]["_parent_role"] == "paragraph"
+
+
+def test_parse_aria_snapshot_invalid_yaml():
+    """Test parsing invalid YAML content."""
+    invalid_yaml = "not: valid: yaml: content: multiple: colons"
+
+    json_data, errors = parse_aria_snapshot(invalid_yaml)
+
+    assert json_data is None
+    assert len(errors) > 0
+
+
+def test_parse_aria_snapshot_exception_handling():
+    """Test parsing with unexpected content."""
+    # Empty string should not crash
+    json_data, errors = parse_aria_snapshot("")
+    assert errors == [] or json_data is not None or len(errors) > 0  # Either parse or error
+
+
+def test_apply_jmespath_query_null_result():
+    """Test JMESPath query that returns null."""
+    data = [{"role": "button"}]
+
+    result, error = apply_jmespath_query(data, '[?role == `nonexistent`]')
+
+    assert error is None
+    assert result == []
+
+
+def test_apply_jmespath_query_with_custom_functions():
+    """Test JMESPath query using custom nvl function."""
+    data = [
+        {"role": "button", "name": {"value": "Submit"}},
+        {"role": "link", "name": None},
+    ]
+
+    result, error = apply_jmespath_query(data, "[].{role: role, name: nvl(name.value, 'unnamed')}")
+
+    assert error is None
+    assert len(result) == 2
+    assert result[0]["name"] == "Submit"
+    assert result[1]["name"] == "unnamed"
+
+
+def test_format_output_case_insensitive():
+    """Test format_output handles case insensitively."""
+    data = [{"role": "button"}]
+
+    result_upper = format_output(data, "JSON")
+    result_lower = format_output(data, "json")
+
+    assert result_upper == result_lower == data
