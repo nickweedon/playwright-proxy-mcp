@@ -130,6 +130,7 @@ For modules below 80% test proportionality:
 2. Ignore complexity warnings just because exit code is 0
 3. Skip the "Recommended Improvements" section when warnings are present
 4. Assume exit code 0 means no issues
+5. Assume immediately that CC score of 'C' means to add tests, always first check for refactoring opportunities.
 
 ✅ **DO**:
 1. Always check the final "Status:" summary for ⚠️ symbols
