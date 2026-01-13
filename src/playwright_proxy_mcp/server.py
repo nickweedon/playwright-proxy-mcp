@@ -112,18 +112,173 @@ async def lifespan_context(server):
 mcp = FastMCP(
     name="Playwright MCP Proxy",
     instructions="""
-    This is a proxy server for Microsoft's playwright-mcp that provides
-    efficient handling of large binary data (screenshots, PDFs) through
-    blob storage.
+# Playwright MCP Proxy Usage Guide
 
-    All playwright browser automation tools are available through this proxy.
-    Large binary responses (>50KB by default) are automatically stored as blobs
-    to reduce token usage.
+## Overview
 
-    When a tool returns a blob reference (blob://timestamp-hash.png format),
-    use a separate MCP Resource Server to retrieve, list, or delete blobs.
-    This server only creates and returns blob:// URIs.
+This proxy wraps Microsoft's playwright-mcp with blob storage for large binary data (screenshots, PDFs >50KB).
+When a tool returns a blob reference (blob://timestamp-hash.png), use a separate MCP Resource Server to retrieve it.
 
+## Browser Pool Architecture
+
+The server maintains a pool of browser instances for parallel operations.
+
+### Check Available Instances
+
+Use `browser_pool_status()` to see:
+- `total_instances`: Number of browser instances available
+- `healthy_instances`: Instances passing health checks
+- `available_instances`: Healthy and not currently leased
+- Each instance has an `id` (e.g., "0", "1", "2", "3", "4")
+
+## CRITICAL: Browser Instance Affinity
+
+**Problem**: Without specifying `browser_instance`, each tool call may go to a different browser instance:
+- `browser_navigate` loads page on instance 0
+- `browser_evaluate` runs on instance 1 (which shows `about:blank`)
+- Data extraction fails
+
+**Solution**: Always specify `browser_instance` for multi-step workflows.
+
+### Correct Pattern
+
+```
+browser_execute_bulk(
+    commands=[
+        {"tool": "browser_navigate", "args": {"url": "https://example.com", "silent_mode": true}},
+        {"tool": "browser_wait_for", "args": {"time": 5}},
+        {"tool": "browser_evaluate", "args": {"function": "() => document.title"}, "return_result": true}
+    ],
+    browser_instance="0"  # All commands use same instance
+)
+```
+
+### Incorrect Pattern (Will Fail)
+
+```
+# These may run on different instances!
+browser_navigate(url="https://example.com")
+browser_evaluate(function="() => document.title")  # Returns empty - wrong instance
+```
+
+## Parallel Operations
+
+With multiple browser instances, run truly parallel searches by assigning each workflow to a different instance:
+
+```
+# Run simultaneously - each on a different browser instance
+browser_execute_bulk(commands=[...], browser_instance="0")
+browser_execute_bulk(commands=[...], browser_instance="1")
+browser_execute_bulk(commands=[...], browser_instance="2")
+browser_execute_bulk(commands=[...], browser_instance="3")
+```
+
+## Recommended Workflow Pattern
+
+### Single Page Data Extraction
+
+```
+browser_execute_bulk(
+    commands=[
+        {"tool": "browser_navigate", "args": {"url": "https://example.com/page", "silent_mode": true}},
+        {"tool": "browser_wait_for", "args": {"time": 5}},
+        {"tool": "browser_evaluate", "args": {"function": "() => { /* extract data */ return data; }"}, "return_result": true}
+    ],
+    browser_instance="0",
+    stop_on_error=true
+)
+```
+
+### Key Parameters
+
+- `browser_instance`: Lock workflow to specific instance (e.g., "0", "1")
+- `silent_mode: true`: Skip returning large ARIA snapshots on navigation
+- `return_result: true`: Only on commands whose output you need
+- `stop_on_error: true`: Halt on first failure
+
+## Handling Large Responses
+
+Navigation and snapshots can return very large ARIA trees (100KB-500KB+). When this happens:
+1. Output is saved to a file, and you receive the file path
+2. Use `jq` or `grep` to extract specific data from the saved file
+3. Prefer `browser_evaluate` with JavaScript to extract only needed data
+
+### Efficient Data Extraction
+
+Instead of parsing large ARIA snapshots, use JavaScript evaluation:
+
+```
+browser_evaluate({
+    function: `() => {
+        const results = [];
+        document.querySelectorAll('table tbody tr').forEach((row, i) => {
+            if (i > 20) return;  // Limit results
+            const text = row.innerText;
+            const match = text.match(/pattern/);
+            if (match) {
+                results.push({ data: match[0], info: text.substring(0, 200) });
+            }
+        });
+        return { count: results.length, results };
+    }`
+})
+```
+
+## Wait Times
+
+Dynamic pages need time to load JavaScript content:
+
+- Static HTML: 1-2 seconds
+- Light JavaScript: 3-4 seconds
+- Heavy SPA / React: 5-8 seconds
+- Infinite scroll: Wait for specific element
+
+Use `browser_wait_for` with:
+- `time`: Fixed wait in seconds
+- `text`: Wait for specific text to appear
+- `textGone`: Wait for text to disappear
+
+## Screenshots and PDFs
+
+Binary outputs are stored as blobs and returned as `blob://` URIs:
+
+```
+browser_take_screenshot(filename="screenshot.png")
+# Returns: blob://1768223722-c0c0d972b8a2269f.png
+
+browser_pdf_save(filename="page.pdf")
+# Returns: blob://1768223722-abcd1234.pdf
+```
+
+## Common Pitfalls
+
+1. **Forgetting `browser_instance`**: Results in `about:blank` when evaluating
+2. **Not waiting long enough**: Dynamic content not loaded
+3. **Parsing ARIA snapshots**: Use `browser_evaluate` instead for structured data
+4. **Sequential assumptions**: Different calls may hit different instances without explicit binding
+5. **Large snapshot handling**: Use `silent_mode: true` and extract data via JavaScript
+
+## Quick Reference
+
+```
+# Check pool status
+browser_pool_status()
+
+# Single operation with instance affinity
+browser_execute_bulk(
+    commands=[
+        {"tool": "browser_navigate", "args": {"url": URL, "silent_mode": true}},
+        {"tool": "browser_wait_for", "args": {"time": 5}},
+        {"tool": "browser_evaluate", "args": {"function": JS_CODE}, "return_result": true}
+    ],
+    browser_instance="0"
+)
+
+# Parallel operations (call simultaneously with different instances)
+browser_execute_bulk(commands=[...], browser_instance="0")
+browser_execute_bulk(commands=[...], browser_instance="1")
+browser_execute_bulk(commands=[...], browser_instance="2")
+```
     """,
     lifespan=lifespan_context,
 )
