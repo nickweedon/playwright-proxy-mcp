@@ -279,6 +279,8 @@ async def _fetch_fresh_snapshot(
     tool_name: str,
     args: dict[str, Any],
     cache_url: str = "",
+    browser_pool: str | None = None,
+    browser_instance: str | None = None,
 ) -> tuple[list[Any] | None, str, str | None]:
     """
     Fetch and cache a fresh ARIA snapshot via navigation or snapshot tool.
@@ -289,13 +291,15 @@ async def _fetch_fresh_snapshot(
         tool_name: Tool to call ("browser_navigate" or "browser_snapshot")
         args: Arguments for the playwright call
         cache_url: URL to store in cache (empty for snapshots)
+        browser_pool: Target browser pool name
+        browser_instance: Target browser instance ID or alias
 
     Returns:
         Tuple of (snapshot_json, cache_key, error_message)
     """
     from .utils.aria_processor import parse_aria_snapshot
 
-    raw_result = await call_playwright_fn(tool_name, args)
+    raw_result = await call_playwright_fn(tool_name, args, browser_pool, browser_instance)
 
     if not isinstance(raw_result, dict):
         return None, "", f"Unexpected response format from {tool_name}"
@@ -351,6 +355,8 @@ async def browser_navigate(
     cache_key: str | None = None,
     offset: int = 0,
     limit: int = 1000,
+    browser_pool: str | None = None,
+    browser_instance: str | None = None,
 ) -> Any:
     """
     Navigate to a URL and capture accessibility snapshot with advanced filtering.
@@ -358,6 +364,12 @@ async def browser_navigate(
     This tool navigates to the specified URL, captures an ARIA snapshot of the page,
     and supports advanced filtering, pagination, and output formatting to prevent
     context flooding from large snapshots.
+
+    CONCURRENT BROWSER SESSIONS:
+        This proxy supports multiple concurrent browser sessions through browser pools.
+        Each pool contains one or more browser instances that can be used in parallel.
+        Use browser_pool and browser_instance to target specific browsers for workflows
+        requiring session isolation or parallel execution.
 
     Args:
         url: The URL to navigate to
@@ -453,6 +465,22 @@ async def browser_navigate(
             2. Query + paginate: browser_navigate(url="...", jmespath_query="[].children[?role=='button']", limit=50)
             3. Next page: browser_navigate(url="...", cache_key="nav_abc123", offset=50, limit=50)
 
+        browser_pool: Target a specific browser pool by name. Default: None (uses default pool)
+
+            Pools allow organizing browser instances with different configurations (e.g., different
+            browsers, headless vs headed). When None, uses the pool marked with IS_DEFAULT=true.
+
+            Example pool names: "DEFAULT", "FIREFOX", "ISOLATED"
+
+        browser_instance: Target a specific instance within the pool. Default: None (FIFO selection)
+
+            Can be a numeric ID ("0", "1") or an alias configured via environment variables.
+            When None, the first available (unleased) instance is used automatically.
+            When specified, blocks until that specific instance becomes available.
+
+            Use specific instances when you need session continuity across multiple tool calls
+            (e.g., maintaining login state, multi-step workflows on the same page).
+
     Returns:
         NavigationResponse with navigation result and paginated snapshot.
 
@@ -508,7 +536,7 @@ async def browser_navigate(
     # Silent mode: just navigate, no processing
     if silent_mode:
         try:
-            await _call_playwright_tool("browser_navigate", {"url": url})
+            await _call_playwright_tool("browser_navigate", {"url": url}, browser_pool, browser_instance)
             return NavigationResponse(
                 success=True, url=url, cache_key="", total_items=0, offset=0, limit=limit,
                 has_more=False, snapshot=None, error=None, output_format=output_format,
@@ -531,7 +559,8 @@ async def browser_navigate(
         # Fetch fresh if no cache or cache miss
         if snapshot_json is None:
             snapshot_json, key, error = await _fetch_fresh_snapshot(
-                navigation_cache, _call_playwright_tool, "browser_navigate", {"url": url}, url
+                navigation_cache, _call_playwright_tool, "browser_navigate", {"url": url}, url,
+                browser_pool, browser_instance
             )
             if error:
                 return _create_navigation_error(url, error, offset, limit, "", output_format)
@@ -557,14 +586,21 @@ async def browser_navigate(
 
 @mcp.tool()
 @log_tool_result(logger)
-async def browser_navigate_back() -> dict[str, Any]:
+async def browser_navigate_back(
+    browser_pool: str | None = None,
+    browser_instance: str | None = None,
+) -> dict[str, Any]:
     """
     Go back to the previous page.
+
+    Args:
+        browser_pool: Target a specific browser pool by name. Default: None (uses default pool)
+        browser_instance: Target a specific instance within the pool. Default: None (FIFO selection)
 
     Returns:
         Navigation result
     """
-    return await _call_playwright_tool("browser_navigate_back", {})
+    return await _call_playwright_tool("browser_navigate_back", {}, browser_pool, browser_instance)
 
 
 # =============================================================================
@@ -578,12 +614,27 @@ async def browser_execute_bulk(
     commands: list[dict[str, Any]],
     stop_on_error: bool = True,
     return_all_results: bool = False,
+    browser_pool: str | None = None,
+    browser_instance: str | None = None,
 ) -> dict[str, Any]:
     """
     Execute multiple browser commands sequentially in a single call.
 
     Optimizes common workflows by reducing round-trip overhead. Useful for
     patterns like navigate→wait→snapshot or navigate→click→wait→extract.
+
+    INSTANCE AFFINITY:
+        When browser_pool and/or browser_instance are specified at the bulk level,
+        ALL commands in the batch automatically use the same browser instance.
+        This ensures session continuity across the entire workflow - login state,
+        cookies, page context, and DOM state are preserved between commands.
+
+        The instance is selected once at the start of execution and held for the
+        entire batch. Individual commands do NOT need to specify browser_pool or
+        browser_instance in their args (they are automatically injected).
+
+        If a command explicitly specifies browser_pool or browser_instance in its
+        args, those values override the bulk-level settings for that command only.
 
     Args:
         commands: Array of commands to execute sequentially. Each command:
@@ -597,6 +648,13 @@ async def browser_execute_bulk(
         return_all_results: Return results from all commands (default: False).
             If False, only returns results where return_result=True.
             Note: Setting this to True may consume significant tokens for large responses.
+
+        browser_pool: Target a specific browser pool by name. Default: None (uses default pool)
+            All commands in the batch will use instances from this pool.
+
+        browser_instance: Target a specific instance within the pool. Default: None (FIFO selection)
+            When specified, all commands use this exact instance, ensuring session affinity.
+            When None, an instance is selected via FIFO and used for the entire batch.
 
     Returns:
         BulkExecutionResponse with execution metadata and selective results.
@@ -622,7 +680,7 @@ async def browser_execute_bulk(
             ]
         )
 
-        # Multi-step interaction (return intermediate states)
+        # Multi-step interaction with explicit instance for session continuity
         browser_execute_bulk(
             commands=[
                 {"tool": "browser_navigate", "args": {"url": "..."}},
@@ -630,11 +688,13 @@ async def browser_execute_bulk(
                 {"tool": "browser_wait_for", "args": {"time": 1000}},
                 {"tool": "browser_snapshot", "args": {}, "return_result": true}
             ],
+            browser_pool="DEFAULT",
+            browser_instance="0",  # All commands use instance 0
             stop_on_error=true,
             return_all_results=false
         )
 
-        # Form filling workflow
+        # Form filling workflow with automatic instance affinity
         browser_execute_bulk(
             commands=[
                 {"tool": "browser_navigate", "args": {"url": "...", "silent_mode": true}},
@@ -642,7 +702,8 @@ async def browser_execute_bulk(
                 {"tool": "browser_click", "args": {"element": "button", "ref": "e2"}},
                 {"tool": "browser_wait_for", "args": {"text": "Success"}},
                 {"tool": "browser_snapshot", "args": {"output_format": "json"}, "return_result": true}
-            ]
+            ],
+            browser_pool="ISOLATED"  # FIFO selects an instance, used for all commands
         )
 
     Error Handling:
@@ -655,6 +716,7 @@ async def browser_execute_bulk(
         - Use silent_mode=True on navigation to skip large ARIA snapshots
         - Set return_result=True only on final/critical commands
         - Consider pagination for large result sets
+        - Bulk execution with instance affinity is more efficient than separate tool calls
     """
     # Validate non-empty commands array
     if not commands:
@@ -758,8 +820,14 @@ async def browser_execute_bulk(
 
     for idx, cmd in enumerate(commands):
         tool_name = cmd["tool"]
-        args = cmd.get("args", {})
+        args = cmd.get("args", {}).copy()  # Copy to avoid mutating original
         return_result = cmd.get("return_result", False) or return_all_results
+
+        # Inject browser_pool/browser_instance for instance affinity (if not already specified)
+        if browser_pool is not None and "browser_pool" not in args:
+            args["browser_pool"] = browser_pool
+        if browser_instance is not None and "browser_instance" not in args:
+            args["browser_instance"] = browser_instance
 
         try:
             # Try to find wrapper function first
@@ -768,7 +836,10 @@ async def browser_execute_bulk(
                 result = await tool_registry[tool_name](**args)
             else:
                 # Fallback to direct call for any tools not in registry
-                result = await _call_playwright_tool(tool_name, args)
+                result = await _call_playwright_tool(
+                    tool_name, args,
+                    args.get("browser_pool"), args.get("browser_instance")
+                )
 
             results.append(result if return_result else None)
             errors.append(None)
@@ -852,6 +923,8 @@ async def browser_take_screenshot(
     element: str | None = None,
     ref: str | None = None,
     fullPage: bool | None = None,
+    browser_pool: str | None = None,
+    browser_instance: str | None = None,
 ) -> str:
     """
     Take a screenshot of the current page. You can't perform actions based on the screenshot, use browser_snapshot for actions.
@@ -869,6 +942,8 @@ async def browser_take_screenshot(
              If ref is provided, element must be provided too.
         fullPage: When true, takes a screenshot of the full scrollable page, instead of the currently visible viewport.
                   Cannot be used with element screenshots.
+        browser_pool: Target a specific browser pool by name. Default: None (uses default pool)
+        browser_instance: Target a specific instance within the pool. Default: None (FIFO selection)
 
     Returns:
         Blob URI reference (blob://timestamp-hash.png or blob://timestamp-hash.jpeg)
@@ -883,7 +958,7 @@ async def browser_take_screenshot(
     if fullPage is not None:
         args["fullPage"] = fullPage
 
-    result = await _call_playwright_tool("browser_take_screenshot", args)
+    result = await _call_playwright_tool("browser_take_screenshot", args, browser_pool, browser_instance)
     blob_id = _extract_blob_id_from_response(result)
 
     if not blob_id:
@@ -894,7 +969,11 @@ async def browser_take_screenshot(
 
 @mcp.tool()
 @log_tool_result(logger)
-async def browser_pdf_save(filename: str | None = None) -> str:
+async def browser_pdf_save(
+    filename: str | None = None,
+    browser_pool: str | None = None,
+    browser_instance: str | None = None,
+) -> str:
     """
     Save page as PDF.
 
@@ -904,6 +983,8 @@ async def browser_pdf_save(filename: str | None = None) -> str:
     Args:
         filename: File name to save the pdf to. Defaults to page-{timestamp}.pdf if not specified.
                   Prefer relative file names to stay within the output directory.
+        browser_pool: Target a specific browser pool by name. Default: None (uses default pool)
+        browser_instance: Target a specific instance within the pool. Default: None (FIFO selection)
 
     Returns:
         Blob URI reference (blob://timestamp-hash.pdf)
@@ -912,7 +993,7 @@ async def browser_pdf_save(filename: str | None = None) -> str:
     if filename is not None:
         args["filename"] = filename
 
-    result = await _call_playwright_tool("browser_pdf_save", args)
+    result = await _call_playwright_tool("browser_pdf_save", args, browser_pool, browser_instance)
     blob_id = _extract_blob_id_from_response(result)
 
     if not blob_id:
@@ -928,7 +1009,11 @@ async def browser_pdf_save(filename: str | None = None) -> str:
 
 @mcp.tool()
 @log_tool_result(logger)
-async def browser_run_code(code: str) -> dict[str, Any]:
+async def browser_run_code(
+    code: str,
+    browser_pool: str | None = None,
+    browser_instance: str | None = None,
+) -> dict[str, Any]:
     """
     Run Playwright code snippet.
 
@@ -936,11 +1021,13 @@ async def browser_run_code(code: str) -> dict[str, Any]:
         code: A JavaScript function containing Playwright code to execute. It will be invoked with a single
               argument, page, which you can use for any page interaction.
               For example: async (page) => { await page.getByRole('button', { name: 'Submit' }).click(); return await page.title(); }
+        browser_pool: Target a specific browser pool by name. Default: None (uses default pool)
+        browser_instance: Target a specific instance within the pool. Default: None (FIFO selection)
 
     Returns:
         Code execution result
     """
-    return await _call_playwright_tool("browser_run_code", {"code": code})
+    return await _call_playwright_tool("browser_run_code", {"code": code}, browser_pool, browser_instance)
 
 
 def _create_evaluation_error(
@@ -990,6 +1077,8 @@ async def browser_evaluate(
     cache_key: str | None = None,
     offset: int = 0,
     limit: int = 1000,
+    browser_pool: str | None = None,
+    browser_instance: str | None = None,
 ) -> dict[str, Any]:
     """
     Evaluate JavaScript expression on page or element with optional pagination.
@@ -1077,6 +1166,9 @@ async def browser_evaluate(
             ref="e1"
         )
 
+        browser_pool: Target a specific browser pool by name. Default: None (uses default pool)
+        browser_instance: Target a specific instance within the pool. Default: None (FIFO selection)
+
     Notes:
         - Cache entries expire after 5 minutes of inactivity
         - For arrays with 1000 or fewer items, omit pagination parameters for simplicity
@@ -1099,7 +1191,7 @@ async def browser_evaluate(
             args["element"] = element
         if ref is not None:
             args["ref"] = ref
-        return await _call_playwright_tool("browser_evaluate", args)
+        return await _call_playwright_tool("browser_evaluate", args, browser_pool, browser_instance)
 
     # Pagination mode: validate parameters
     validation_error = _validate_evaluation_params(offset, limit)
@@ -1132,7 +1224,7 @@ async def browser_evaluate(
             if ref is not None:
                 args["ref"] = ref
 
-            raw_result = await _call_playwright_tool("browser_evaluate", args)
+            raw_result = await _call_playwright_tool("browser_evaluate", args, browser_pool, browser_instance)
 
             # Extract result from {"result": ...} format
             result_data = raw_result.get("result")
@@ -1188,6 +1280,8 @@ async def browser_snapshot(
     cache_key: str | None = None,
     offset: int = 0,
     limit: int = 1000,
+    browser_pool: str | None = None,
+    browser_instance: str | None = None,
 ) -> Any:
     """
     Capture accessibility snapshot of the current page with advanced filtering.
@@ -1291,6 +1385,9 @@ async def browser_snapshot(
             2. Query + paginate: browser_snapshot(jmespath_query="[].children[?role=='button']", limit=50)
             3. Next page: browser_snapshot(cache_key="nav_abc123", offset=50, limit=50)
 
+        browser_pool: Target a specific browser pool by name. Default: None (uses default pool)
+        browser_instance: Target a specific instance within the pool. Default: None (FIFO selection)
+
     Returns:
         NavigationResponse with snapshot result and paginated data (or file save confirmation).
 
@@ -1318,7 +1415,7 @@ async def browser_snapshot(
     """
     # If filename provided, use original behavior
     if filename is not None:
-        return await _call_playwright_tool("browser_snapshot", {"filename": filename})
+        return await _call_playwright_tool("browser_snapshot", {"filename": filename}, browser_pool, browser_instance)
 
     from .types import NavigationResponse
     from .utils.aria_processor import format_output
@@ -1339,7 +1436,7 @@ async def browser_snapshot(
     # Silent mode: just capture, no processing
     if silent_mode:
         try:
-            await _call_playwright_tool("browser_snapshot", {})
+            await _call_playwright_tool("browser_snapshot", {}, browser_pool, browser_instance)
             return NavigationResponse(
                 success=True, url="", cache_key="", total_items=0, offset=0, limit=limit,
                 has_more=False, snapshot=None, error=None, output_format=output_format,
@@ -1362,7 +1459,8 @@ async def browser_snapshot(
         # Fetch fresh if no cache or cache miss
         if snapshot_json is None:
             snapshot_json, key, error = await _fetch_fresh_snapshot(
-                navigation_cache, _call_playwright_tool, "browser_snapshot", {}
+                navigation_cache, _call_playwright_tool, "browser_snapshot", {},
+                "", browser_pool, browser_instance
             )
             if error:
                 return _create_navigation_error("", error, offset, limit, "", output_format)
@@ -1394,6 +1492,8 @@ async def browser_click(
     doubleClick: bool | None = None,
     button: str | None = None,
     modifiers: list[str] | None = None,
+    browser_pool: str | None = None,
+    browser_instance: str | None = None,
 ) -> dict[str, Any]:
     """
     Perform click on a web page.
@@ -1404,6 +1504,8 @@ async def browser_click(
         doubleClick: Whether to perform a double click instead of a single click
         button: Button to click, must be 'left', 'right', or 'middle'. Defaults to 'left'.
         modifiers: Modifier keys to press. Can include: 'Alt', 'Control', 'ControlOrMeta', 'Meta', 'Shift'.
+        browser_pool: Target a specific browser pool by name. Default: None (uses default pool)
+        browser_instance: Target a specific instance within the pool. Default: None (FIFO selection)
 
     Returns:
         Click result
@@ -1416,7 +1518,7 @@ async def browser_click(
     if modifiers is not None:
         args["modifiers"] = modifiers
 
-    return await _call_playwright_tool("browser_click", args)
+    return await _call_playwright_tool("browser_click", args, browser_pool, browser_instance)
 
 
 @mcp.tool()
@@ -1426,6 +1528,8 @@ async def browser_drag(
     startRef: str,
     endElement: str,
     endRef: str,
+    browser_pool: str | None = None,
+    browser_instance: str | None = None,
 ) -> dict[str, Any]:
     """
     Perform drag and drop between two elements.
@@ -1435,6 +1539,8 @@ async def browser_drag(
         startRef: Exact source element reference from the page snapshot
         endElement: Human-readable target element description used to obtain the permission to interact with the element
         endRef: Exact target element reference from the page snapshot
+        browser_pool: Target a specific browser pool by name. Default: None (uses default pool)
+        browser_instance: Target a specific instance within the pool. Default: None (FIFO selection)
 
     Returns:
         Drag result
@@ -1447,28 +1553,43 @@ async def browser_drag(
             "endElement": endElement,
             "endRef": endRef,
         },
+        browser_pool,
+        browser_instance,
     )
 
 
 @mcp.tool()
 @log_tool_result(logger)
-async def browser_hover(element: str, ref: str) -> dict[str, Any]:
+async def browser_hover(
+    element: str,
+    ref: str,
+    browser_pool: str | None = None,
+    browser_instance: str | None = None,
+) -> dict[str, Any]:
     """
     Hover over element on page.
 
     Args:
         element: Human-readable element description used to obtain permission to interact with the element
         ref: Exact target element reference from the page snapshot
+        browser_pool: Target a specific browser pool by name. Default: None (uses default pool)
+        browser_instance: Target a specific instance within the pool. Default: None (FIFO selection)
 
     Returns:
         Hover result
     """
-    return await _call_playwright_tool("browser_hover", {"element": element, "ref": ref})
+    return await _call_playwright_tool("browser_hover", {"element": element, "ref": ref}, browser_pool, browser_instance)
 
 
 @mcp.tool()
 @log_tool_result(logger)
-async def browser_select_option(element: str, ref: str, values: list[str]) -> dict[str, Any]:
+async def browser_select_option(
+    element: str,
+    ref: str,
+    values: list[str],
+    browser_pool: str | None = None,
+    browser_instance: str | None = None,
+) -> dict[str, Any]:
     """
     Select an option in a dropdown.
 
@@ -1476,29 +1597,39 @@ async def browser_select_option(element: str, ref: str, values: list[str]) -> di
         element: Human-readable element description used to obtain permission to interact with the element
         ref: Exact target element reference from the page snapshot
         values: Array of values to select in the dropdown. This can be a single value or multiple values.
+        browser_pool: Target a specific browser pool by name. Default: None (uses default pool)
+        browser_instance: Target a specific instance within the pool. Default: None (FIFO selection)
 
     Returns:
         Selection result
     """
     return await _call_playwright_tool(
-        "browser_select_option", {"element": element, "ref": ref, "values": values}
+        "browser_select_option", {"element": element, "ref": ref, "values": values},
+        browser_pool, browser_instance
     )
 
 
 @mcp.tool()
 @log_tool_result(logger)
-async def browser_generate_locator(element: str, ref: str) -> dict[str, Any]:
+async def browser_generate_locator(
+    element: str,
+    ref: str,
+    browser_pool: str | None = None,
+    browser_instance: str | None = None,
+) -> dict[str, Any]:
     """
     Generate locator for the given element to use in tests.
 
     Args:
         element: Human-readable element description used to obtain permission to interact with the element
         ref: Exact target element reference from the page snapshot
+        browser_pool: Target a specific browser pool by name. Default: None (uses default pool)
+        browser_instance: Target a specific instance within the pool. Default: None (FIFO selection)
 
     Returns:
         Generated locator
     """
-    return await _call_playwright_tool("browser_generate_locator", {"element": element, "ref": ref})
+    return await _call_playwright_tool("browser_generate_locator", {"element": element, "ref": ref}, browser_pool, browser_instance)
 
 
 # =============================================================================
@@ -1508,7 +1639,11 @@ async def browser_generate_locator(element: str, ref: str) -> dict[str, Any]:
 
 @mcp.tool()
 @log_tool_result(logger)
-async def browser_fill_form(fields: list[dict[str, Any]]) -> dict[str, Any]:
+async def browser_fill_form(
+    fields: list[dict[str, Any]],
+    browser_pool: str | None = None,
+    browser_instance: str | None = None,
+) -> dict[str, Any]:
     """
     Fill multiple form fields.
 
@@ -1519,11 +1654,13 @@ async def browser_fill_form(fields: list[dict[str, Any]]) -> dict[str, Any]:
                 - ref (str): Exact target field reference from the page snapshot
                 - value (str): Value to fill in the field. If the field is a checkbox, the value should be 'true' or 'false'.
                               If the field is a combobox, the value should be the text of the option.
+        browser_pool: Target a specific browser pool by name. Default: None (uses default pool)
+        browser_instance: Target a specific instance within the pool. Default: None (FIFO selection)
 
     Returns:
         Fill result
     """
-    return await _call_playwright_tool("browser_fill_form", {"fields": fields})
+    return await _call_playwright_tool("browser_fill_form", {"fields": fields}, browser_pool, browser_instance)
 
 
 # =============================================================================
@@ -1533,7 +1670,13 @@ async def browser_fill_form(fields: list[dict[str, Any]]) -> dict[str, Any]:
 
 @mcp.tool()
 @log_tool_result(logger)
-async def browser_mouse_move_xy(element: str, x: float, y: float) -> dict[str, Any]:
+async def browser_mouse_move_xy(
+    element: str,
+    x: float,
+    y: float,
+    browser_pool: str | None = None,
+    browser_instance: str | None = None,
+) -> dict[str, Any]:
     """
     Move mouse to a given position.
 
@@ -1541,18 +1684,27 @@ async def browser_mouse_move_xy(element: str, x: float, y: float) -> dict[str, A
         element: Human-readable element description used to obtain permission to interact with the element
         x: X coordinate
         y: Y coordinate
+        browser_pool: Target a specific browser pool by name. Default: None (uses default pool)
+        browser_instance: Target a specific instance within the pool. Default: None (FIFO selection)
 
     Returns:
         Mouse move result
     """
     return await _call_playwright_tool(
-        "browser_mouse_move_xy", {"element": element, "x": x, "y": y}
+        "browser_mouse_move_xy", {"element": element, "x": x, "y": y},
+        browser_pool, browser_instance
     )
 
 
 @mcp.tool()
 @log_tool_result(logger)
-async def browser_mouse_click_xy(element: str, x: float, y: float) -> dict[str, Any]:
+async def browser_mouse_click_xy(
+    element: str,
+    x: float,
+    y: float,
+    browser_pool: str | None = None,
+    browser_instance: str | None = None,
+) -> dict[str, Any]:
     """
     Click left mouse button at a given position.
 
@@ -1560,12 +1712,15 @@ async def browser_mouse_click_xy(element: str, x: float, y: float) -> dict[str, 
         element: Human-readable element description used to obtain permission to interact with the element
         x: X coordinate
         y: Y coordinate
+        browser_pool: Target a specific browser pool by name. Default: None (uses default pool)
+        browser_instance: Target a specific instance within the pool. Default: None (FIFO selection)
 
     Returns:
         Mouse click result
     """
     return await _call_playwright_tool(
-        "browser_mouse_click_xy", {"element": element, "x": x, "y": y}
+        "browser_mouse_click_xy", {"element": element, "x": x, "y": y},
+        browser_pool, browser_instance
     )
 
 
@@ -1577,6 +1732,8 @@ async def browser_mouse_drag_xy(
     startY: float,
     endX: float,
     endY: float,
+    browser_pool: str | None = None,
+    browser_instance: str | None = None,
 ) -> dict[str, Any]:
     """
     Drag left mouse button to a given position.
@@ -1587,6 +1744,8 @@ async def browser_mouse_drag_xy(
         startY: Start Y coordinate
         endX: End X coordinate
         endY: End Y coordinate
+        browser_pool: Target a specific browser pool by name. Default: None (uses default pool)
+        browser_instance: Target a specific instance within the pool. Default: None (FIFO selection)
 
     Returns:
         Mouse drag result
@@ -1600,6 +1759,8 @@ async def browser_mouse_drag_xy(
             "endX": endX,
             "endY": endY,
         },
+        browser_pool,
+        browser_instance,
     )
 
 
@@ -1610,17 +1771,23 @@ async def browser_mouse_drag_xy(
 
 @mcp.tool()
 @log_tool_result(logger)
-async def browser_press_key(key: str) -> dict[str, Any]:
+async def browser_press_key(
+    key: str,
+    browser_pool: str | None = None,
+    browser_instance: str | None = None,
+) -> dict[str, Any]:
     """
     Press a key on the keyboard.
 
     Args:
         key: Name of the key to press or a character to generate, such as 'ArrowLeft' or 'a'
+        browser_pool: Target a specific browser pool by name. Default: None (uses default pool)
+        browser_instance: Target a specific instance within the pool. Default: None (FIFO selection)
 
     Returns:
         Key press result
     """
-    return await _call_playwright_tool("browser_press_key", {"key": key})
+    return await _call_playwright_tool("browser_press_key", {"key": key}, browser_pool, browser_instance)
 
 
 @mcp.tool()
@@ -1631,6 +1798,8 @@ async def browser_type(
     text: str,
     submit: bool | None = None,
     slowly: bool | None = None,
+    browser_pool: str | None = None,
+    browser_instance: str | None = None,
 ) -> dict[str, Any]:
     """
     Type text into editable element.
@@ -1642,6 +1811,8 @@ async def browser_type(
         submit: Whether to submit entered text (press Enter after)
         slowly: Whether to type one character at a time. Useful for triggering key handlers in the page.
                 By default entire text is filled in at once.
+        browser_pool: Target a specific browser pool by name. Default: None (uses default pool)
+        browser_instance: Target a specific instance within the pool. Default: None (FIFO selection)
 
     Returns:
         Type result
@@ -1652,7 +1823,7 @@ async def browser_type(
     if slowly is not None:
         args["slowly"] = slowly
 
-    return await _call_playwright_tool("browser_type", args)
+    return await _call_playwright_tool("browser_type", args, browser_pool, browser_instance)
 
 
 # =============================================================================
@@ -1666,6 +1837,8 @@ async def browser_wait_for(
     time: float | None = None,
     text: str | None = None,
     textGone: str | None = None,
+    browser_pool: str | None = None,
+    browser_instance: str | None = None,
 ) -> dict[str, Any]:
     """
     Wait for text to appear or disappear or a specified time to pass.
@@ -1674,6 +1847,8 @@ async def browser_wait_for(
         time: The time to wait in seconds
         text: The text to wait for
         textGone: The text to wait for to disappear
+        browser_pool: Target a specific browser pool by name. Default: None (uses default pool)
+        browser_instance: Target a specific instance within the pool. Default: None (FIFO selection)
 
     Returns:
         Wait result
@@ -1687,7 +1862,7 @@ async def browser_wait_for(
     if textGone is not None:
         args["textGone"] = textGone
 
-    return await _call_playwright_tool("browser_wait_for", args)
+    return await _call_playwright_tool("browser_wait_for", args, browser_pool, browser_instance)
 
 
 # =============================================================================
@@ -1697,40 +1872,60 @@ async def browser_wait_for(
 
 @mcp.tool()
 @log_tool_result(logger)
-async def browser_verify_element_visible(role: str, accessibleName: str) -> dict[str, Any]:
+async def browser_verify_element_visible(
+    role: str,
+    accessibleName: str,
+    browser_pool: str | None = None,
+    browser_instance: str | None = None,
+) -> dict[str, Any]:
     """
     Verify element is visible on the page.
 
     Args:
         role: ROLE of the element. Can be found in the snapshot like this: - {ROLE} "Accessible Name":
         accessibleName: ACCESSIBLE_NAME of the element. Can be found in the snapshot like this: - role "{ACCESSIBLE_NAME}"
+        browser_pool: Target a specific browser pool by name. Default: None (uses default pool)
+        browser_instance: Target a specific instance within the pool. Default: None (FIFO selection)
 
     Returns:
         Verification result
     """
     return await _call_playwright_tool(
-        "browser_verify_element_visible", {"role": role, "accessibleName": accessibleName}
+        "browser_verify_element_visible", {"role": role, "accessibleName": accessibleName},
+        browser_pool, browser_instance
     )
 
 
 @mcp.tool()
 @log_tool_result(logger)
-async def browser_verify_text_visible(text: str) -> dict[str, Any]:
+async def browser_verify_text_visible(
+    text: str,
+    browser_pool: str | None = None,
+    browser_instance: str | None = None,
+) -> dict[str, Any]:
     """
     Verify text is visible on the page. Prefer browser_verify_element_visible if possible.
 
     Args:
         text: TEXT to verify. Can be found in the snapshot like this: - role "Accessible Name": {TEXT} or like this: - text: {TEXT}
+        browser_pool: Target a specific browser pool by name. Default: None (uses default pool)
+        browser_instance: Target a specific instance within the pool. Default: None (FIFO selection)
 
     Returns:
         Verification result
     """
-    return await _call_playwright_tool("browser_verify_text_visible", {"text": text})
+    return await _call_playwright_tool("browser_verify_text_visible", {"text": text}, browser_pool, browser_instance)
 
 
 @mcp.tool()
 @log_tool_result(logger)
-async def browser_verify_list_visible(element: str, ref: str, items: list[str]) -> dict[str, Any]:
+async def browser_verify_list_visible(
+    element: str,
+    ref: str,
+    items: list[str],
+    browser_pool: str | None = None,
+    browser_instance: str | None = None,
+) -> dict[str, Any]:
     """
     Verify list is visible on the page.
 
@@ -1738,18 +1933,28 @@ async def browser_verify_list_visible(element: str, ref: str, items: list[str]) 
         element: Human-readable list description
         ref: Exact target element reference that points to the list
         items: Items to verify
+        browser_pool: Target a specific browser pool by name. Default: None (uses default pool)
+        browser_instance: Target a specific instance within the pool. Default: None (FIFO selection)
 
     Returns:
         Verification result
     """
     return await _call_playwright_tool(
-        "browser_verify_list_visible", {"element": element, "ref": ref, "items": items}
+        "browser_verify_list_visible", {"element": element, "ref": ref, "items": items},
+        browser_pool, browser_instance
     )
 
 
 @mcp.tool()
 @log_tool_result(logger)
-async def browser_verify_value(type: str, element: str, ref: str, value: str) -> dict[str, Any]:
+async def browser_verify_value(
+    type: str,
+    element: str,
+    ref: str,
+    value: str,
+    browser_pool: str | None = None,
+    browser_instance: str | None = None,
+) -> dict[str, Any]:
     """
     Verify element value.
 
@@ -1758,12 +1963,15 @@ async def browser_verify_value(type: str, element: str, ref: str, value: str) ->
         element: Human-readable element description
         ref: Exact target element reference that points to the element
         value: Value to verify. For checkbox, use "true" or "false".
+        browser_pool: Target a specific browser pool by name. Default: None (uses default pool)
+        browser_instance: Target a specific instance within the pool. Default: None (FIFO selection)
 
     Returns:
         Verification result
     """
     return await _call_playwright_tool(
-        "browser_verify_value", {"type": type, "element": element, "ref": ref, "value": value}
+        "browser_verify_value", {"type": type, "element": element, "ref": ref, "value": value},
+        browser_pool, browser_instance
     )
 
 
@@ -1774,17 +1982,23 @@ async def browser_verify_value(type: str, element: str, ref: str, value: str) ->
 
 @mcp.tool()
 @log_tool_result(logger)
-async def browser_network_requests(includeStatic: bool = False) -> dict[str, Any]:
+async def browser_network_requests(
+    includeStatic: bool = False,
+    browser_pool: str | None = None,
+    browser_instance: str | None = None,
+) -> dict[str, Any]:
     """
     Returns all network requests since loading the page.
 
     Args:
         includeStatic: Whether to include successful static resources like images, fonts, scripts, etc. Defaults to false.
+        browser_pool: Target a specific browser pool by name. Default: None (uses default pool)
+        browser_instance: Target a specific instance within the pool. Default: None (FIFO selection)
 
     Returns:
         List of network requests
     """
-    return await _call_playwright_tool("browser_network_requests", {"includeStatic": includeStatic})
+    return await _call_playwright_tool("browser_network_requests", {"includeStatic": includeStatic}, browser_pool, browser_instance)
 
 
 # =============================================================================
@@ -1794,13 +2008,20 @@ async def browser_network_requests(includeStatic: bool = False) -> dict[str, Any
 
 @mcp.tool()
 @log_tool_result(logger)
-async def browser_tabs(action: str, index: int | None = None) -> dict[str, Any]:
+async def browser_tabs(
+    action: str,
+    index: int | None = None,
+    browser_pool: str | None = None,
+    browser_instance: str | None = None,
+) -> dict[str, Any]:
     """
     List, create, close, or select a browser tab.
 
     Args:
         action: Operation to perform. Must be 'list', 'new', 'close', or 'select'.
         index: Tab index, used for close/select. If omitted for close, current tab is closed.
+        browser_pool: Target a specific browser pool by name. Default: None (uses default pool)
+        browser_instance: Target a specific instance within the pool. Default: None (FIFO selection)
 
     Returns:
         Tab operation result
@@ -1809,7 +2030,7 @@ async def browser_tabs(action: str, index: int | None = None) -> dict[str, Any]:
     if index is not None:
         args["index"] = index
 
-    return await _call_playwright_tool("browser_tabs", args)
+    return await _call_playwright_tool("browser_tabs", args, browser_pool, browser_instance)
 
 
 # =============================================================================
@@ -1819,18 +2040,24 @@ async def browser_tabs(action: str, index: int | None = None) -> dict[str, Any]:
 
 @mcp.tool()
 @log_tool_result(logger)
-async def browser_console_messages(level: str = "info") -> dict[str, Any]:
+async def browser_console_messages(
+    level: str = "info",
+    browser_pool: str | None = None,
+    browser_instance: str | None = None,
+) -> dict[str, Any]:
     """
     Returns all console messages.
 
     Args:
         level: Level of the console messages to return. Each level includes the messages of more severe levels.
                Must be 'error', 'warning', 'info', or 'debug'. Defaults to "info".
+        browser_pool: Target a specific browser pool by name. Default: None (uses default pool)
+        browser_instance: Target a specific instance within the pool. Default: None (FIFO selection)
 
     Returns:
         List of console messages
     """
-    return await _call_playwright_tool("browser_console_messages", {"level": level})
+    return await _call_playwright_tool("browser_console_messages", {"level": level}, browser_pool, browser_instance)
 
 
 # =============================================================================
@@ -1840,13 +2067,20 @@ async def browser_console_messages(level: str = "info") -> dict[str, Any]:
 
 @mcp.tool()
 @log_tool_result(logger)
-async def browser_handle_dialog(accept: bool, promptText: str | None = None) -> dict[str, Any]:
+async def browser_handle_dialog(
+    accept: bool,
+    promptText: str | None = None,
+    browser_pool: str | None = None,
+    browser_instance: str | None = None,
+) -> dict[str, Any]:
     """
     Handle a dialog.
 
     Args:
         accept: Whether to accept the dialog.
         promptText: The text of the prompt in case of a prompt dialog.
+        browser_pool: Target a specific browser pool by name. Default: None (uses default pool)
+        browser_instance: Target a specific instance within the pool. Default: None (FIFO selection)
 
     Returns:
         Dialog handling result
@@ -1855,7 +2089,7 @@ async def browser_handle_dialog(accept: bool, promptText: str | None = None) -> 
     if promptText is not None:
         args["promptText"] = promptText
 
-    return await _call_playwright_tool("browser_handle_dialog", args)
+    return await _call_playwright_tool("browser_handle_dialog", args, browser_pool, browser_instance)
 
 
 # =============================================================================
@@ -1865,13 +2099,19 @@ async def browser_handle_dialog(accept: bool, promptText: str | None = None) -> 
 
 @mcp.tool()
 @log_tool_result(logger)
-async def browser_file_upload(paths: list[str] | None = None) -> dict[str, Any]:
+async def browser_file_upload(
+    paths: list[str] | None = None,
+    browser_pool: str | None = None,
+    browser_instance: str | None = None,
+) -> dict[str, Any]:
     """
     Upload one or multiple files.
 
     Args:
         paths: The absolute paths to the files to upload. Can be single file or multiple files.
                If omitted, file chooser is cancelled.
+        browser_pool: Target a specific browser pool by name. Default: None (uses default pool)
+        browser_instance: Target a specific instance within the pool. Default: None (FIFO selection)
 
     Returns:
         File upload result
@@ -1880,7 +2120,7 @@ async def browser_file_upload(paths: list[str] | None = None) -> dict[str, Any]:
     if paths is not None:
         args["paths"] = paths
 
-    return await _call_playwright_tool("browser_file_upload", args)
+    return await _call_playwright_tool("browser_file_upload", args, browser_pool, browser_instance)
 
 
 # =============================================================================
@@ -1890,26 +2130,40 @@ async def browser_file_upload(paths: list[str] | None = None) -> dict[str, Any]:
 
 @mcp.tool()
 @log_tool_result(logger)
-async def browser_start_tracing() -> dict[str, Any]:
+async def browser_start_tracing(
+    browser_pool: str | None = None,
+    browser_instance: str | None = None,
+) -> dict[str, Any]:
     """
     Start trace recording.
+
+    Args:
+        browser_pool: Target a specific browser pool by name. Default: None (uses default pool)
+        browser_instance: Target a specific instance within the pool. Default: None (FIFO selection)
 
     Returns:
         Trace start result
     """
-    return await _call_playwright_tool("browser_start_tracing", {})
+    return await _call_playwright_tool("browser_start_tracing", {}, browser_pool, browser_instance)
 
 
 @mcp.tool()
 @log_tool_result(logger)
-async def browser_stop_tracing() -> dict[str, Any]:
+async def browser_stop_tracing(
+    browser_pool: str | None = None,
+    browser_instance: str | None = None,
+) -> dict[str, Any]:
     """
     Stop trace recording.
+
+    Args:
+        browser_pool: Target a specific browser pool by name. Default: None (uses default pool)
+        browser_instance: Target a specific instance within the pool. Default: None (FIFO selection)
 
     Returns:
         Trace stop result
     """
-    return await _call_playwright_tool("browser_stop_tracing", {})
+    return await _call_playwright_tool("browser_stop_tracing", {}, browser_pool, browser_instance)
 
 
 # =============================================================================
@@ -1919,14 +2173,21 @@ async def browser_stop_tracing() -> dict[str, Any]:
 
 @mcp.tool()
 @log_tool_result(logger)
-async def browser_install() -> dict[str, Any]:
+async def browser_install(
+    browser_pool: str | None = None,
+    browser_instance: str | None = None,
+) -> dict[str, Any]:
     """
     Install the browser specified in the config. Call this if you get an error about the browser not being installed.
+
+    Args:
+        browser_pool: Target a specific browser pool by name. Default: None (uses default pool)
+        browser_instance: Target a specific instance within the pool. Default: None (FIFO selection)
 
     Returns:
         Installation result
     """
-    return await _call_playwright_tool("browser_install", {})
+    return await _call_playwright_tool("browser_install", {}, browser_pool, browser_instance)
 
 
 # =============================================================================

@@ -684,7 +684,7 @@ class TestFetchFreshSnapshot:
         mock_cache = Mock()
         mock_cache.create.return_value = "cache_key"
 
-        async def mock_call_tool(tool, args):
+        async def mock_call_tool(tool, args, browser_pool=None, browser_instance=None):
             return {"content": [{"type": "text", "text": "- role: document\n  children: []"}]}
 
         snapshot, key, error = await _fetch_fresh_snapshot(
@@ -700,7 +700,7 @@ class TestFetchFreshSnapshot:
     async def test_fetch_with_parse_error(self):
         mock_cache = Mock()
 
-        async def mock_call_tool(tool, args):
+        async def mock_call_tool(tool, args, browser_pool=None, browser_instance=None):
             return {"content": [{"type": "text", "text": "invalid: yaml: content:"}]}
 
         snapshot, key, error = await _fetch_fresh_snapshot(
@@ -1152,7 +1152,7 @@ class TestFetchFreshSnapshotEdgeCases:
     async def test_fetch_with_empty_response(self):
         mock_cache = Mock()
 
-        async def mock_call_tool(tool, args):
+        async def mock_call_tool(tool, args, browser_pool=None, browser_instance=None):
             return {"content": []}
 
         snapshot, key, error = await _fetch_fresh_snapshot(
@@ -1169,7 +1169,7 @@ class TestFetchFreshSnapshotEdgeCases:
         mock_cache = Mock()
         mock_cache.set = Mock()
 
-        async def mock_call_tool(tool, args):
+        async def mock_call_tool(tool, args, browser_pool=None, browser_instance=None):
             return {"content": [{"type": "text", "text": "- role: document\n  name: Test"}]}
 
         snapshot, key, error = await _fetch_fresh_snapshot(
