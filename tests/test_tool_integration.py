@@ -180,8 +180,9 @@ async def test_browser_navigate_back(mock_pool_manager, mock_proxy_client):
     with patch.object(server, "pool_manager", mock_pool_manager):
         result = await server.browser_navigate_back.fn()
 
-        # Verify the result
-        assert result == {"status": "success"}
+        # Verify the result includes browser_instance
+        assert result["status"] == "success"
+        assert result["browser_instance"] == "0"
 
         # Verify the proxy client was called
         mock_proxy_client.call_tool.assert_called_once_with(
@@ -212,8 +213,9 @@ async def test_browser_take_screenshot_basic(mock_pool_manager, mock_proxy_clien
     with patch.object(server, "pool_manager", mock_pool_manager):
         result = await server.browser_take_screenshot.fn()
 
-        # Verify the result is a blob URI
-        assert result == "blob://1234567890-abc123.png"
+        # Verify the result is a dict with blob_uri and browser_instance
+        assert result["blob_uri"] == "blob://1234567890-abc123.png"
+        assert result["browser_instance"] == "0"
 
         # Verify the proxy client was called
         mock_proxy_client.call_tool.assert_called_once_with(
@@ -245,8 +247,9 @@ async def test_browser_take_screenshot_with_params(mock_pool_manager, mock_proxy
             fullPage=True
         )
 
-        # Verify the result
-        assert result == "blob://1234567890-abc123.jpeg"
+        # Verify the result is a dict with blob_uri and browser_instance
+        assert result["blob_uri"] == "blob://1234567890-abc123.jpeg"
+        assert result["browser_instance"] == "0"
 
         # Verify all parameters were passed
         mock_proxy_client.call_tool.assert_called_once_with(
@@ -278,8 +281,9 @@ async def test_browser_pdf_save_basic(mock_pool_manager, mock_proxy_client):
     with patch.object(server, "pool_manager", mock_pool_manager):
         result = await server.browser_pdf_save.fn()
 
-        # Verify the result is a blob URI
-        assert result == "blob://1234567890-abc123.pdf"
+        # Verify the result is a dict with blob_uri and browser_instance
+        assert result["blob_uri"] == "blob://1234567890-abc123.pdf"
+        assert result["browser_instance"] == "0"
 
         # Verify the proxy client was called
         mock_proxy_client.call_tool.assert_called_once_with(
@@ -305,8 +309,9 @@ async def test_browser_pdf_save_with_filename(mock_pool_manager, mock_proxy_clie
     with patch.object(server, "pool_manager", mock_pool_manager):
         result = await server.browser_pdf_save.fn(filename="test.pdf")
 
-        # Verify the result
-        assert result == "blob://1234567890-abc123.pdf"
+        # Verify the result is a dict with blob_uri and browser_instance
+        assert result["blob_uri"] == "blob://1234567890-abc123.pdf"
+        assert result["browser_instance"] == "0"
 
         # Verify the proxy client was called
         mock_proxy_client.call_tool.assert_called_once_with(
@@ -334,8 +339,9 @@ async def test_browser_run_code(mock_pool_manager, mock_proxy_client):
             code="async (page) => { return await page.title(); }"
         )
 
-        # Verify the result
-        assert result == {"result": "Page Title"}
+        # Verify the result includes browser_instance
+        assert result["result"] == "Page Title"
+        assert result["browser_instance"] == "0"
 
         # Verify the proxy client was called
         mock_proxy_client.call_tool.assert_called_once_with(
@@ -358,8 +364,9 @@ async def test_browser_evaluate_basic(mock_pool_manager, mock_proxy_client):
             function="() => { return 'test'; }"
         )
 
-        # Verify the result
-        assert result == {"result": "evaluated value"}
+        # Verify the result includes browser_instance
+        assert result["result"] == "evaluated value"
+        assert result["browser_instance"] == "0"
 
         # Verify the proxy client was called
         mock_proxy_client.call_tool.assert_called_once_with(
@@ -384,8 +391,9 @@ async def test_browser_evaluate_with_element(mock_pool_manager, mock_proxy_clien
             ref="e1"
         )
 
-        # Verify the result
-        assert result == {"result": "element value"}
+        # Verify the result includes browser_instance
+        assert result["result"] == "element value"
+        assert result["browser_instance"] == "0"
 
         # Verify the proxy client was called
         mock_proxy_client.call_tool.assert_called_once_with(
@@ -415,8 +423,9 @@ async def test_browser_snapshot_with_filename(mock_pool_manager, mock_proxy_clie
     with patch.object(server, "pool_manager", mock_pool_manager):
         result = await server.browser_snapshot.fn(filename="snapshot.md")
 
-        # Verify the result
-        assert result == {"status": "saved to file"}
+        # Verify the result includes browser_instance
+        assert result["status"] == "saved to file"
+        assert result["browser_instance"] == "0"
 
         # Verify the proxy client was called
         mock_proxy_client.call_tool.assert_called_once_with(
@@ -467,8 +476,9 @@ async def test_browser_click_basic(mock_pool_manager, mock_proxy_client):
             ref="e1"
         )
 
-        # Verify the result
-        assert result == {"status": "clicked"}
+        # Verify the result includes browser_instance
+        assert result["status"] == "clicked"
+        assert result["browser_instance"] == "0"
 
         # Verify the proxy client was called
         mock_proxy_client.call_tool.assert_called_once_with(
@@ -521,8 +531,9 @@ async def test_browser_drag(mock_pool_manager, mock_proxy_client):
             endRef="e2"
         )
 
-        # Verify the result
-        assert result == {"status": "dragged"}
+        # Verify the result includes browser_instance
+        assert result["status"] == "dragged"
+        assert result["browser_instance"] == "0"
 
         # Verify the proxy client was called
         mock_proxy_client.call_tool.assert_called_once_with(
@@ -549,8 +560,9 @@ async def test_browser_hover(mock_pool_manager, mock_proxy_client):
             ref="e1"
         )
 
-        # Verify the result
-        assert result == {"status": "hovered"}
+        # Verify the result includes browser_instance
+        assert result["status"] == "hovered"
+        assert result["browser_instance"] == "0"
 
         # Verify the proxy client was called
         mock_proxy_client.call_tool.assert_called_once_with(
@@ -573,8 +585,9 @@ async def test_browser_select_option(mock_pool_manager, mock_proxy_client):
             values=["option1", "option2"]
         )
 
-        # Verify the result
-        assert result == {"status": "selected"}
+        # Verify the result includes browser_instance
+        assert result["status"] == "selected"
+        assert result["browser_instance"] == "0"
 
         # Verify the proxy client was called
         mock_proxy_client.call_tool.assert_called_once_with(
@@ -601,7 +614,8 @@ async def test_browser_generate_locator(mock_pool_manager, mock_proxy_client):
         )
 
         # Verify the result
-        assert result == {"locator": "getByRole('button')"}
+        assert result["locator"] == "getByRole('button')"
+        assert result["browser_instance"] == "0"
 
         # Verify the proxy client was called
         mock_proxy_client.call_tool.assert_called_once_with(
@@ -640,7 +654,8 @@ async def test_browser_fill_form(mock_pool_manager, mock_proxy_client):
         result = await server.browser_fill_form.fn(fields=fields)
 
         # Verify the result
-        assert result == {"status": "filled"}
+        assert result["status"] == "filled"
+        assert result["browser_instance"] == "0"
 
         # Verify the proxy client was called
         mock_proxy_client.call_tool.assert_called_once_with(
@@ -665,7 +680,8 @@ async def test_browser_press_key(mock_pool_manager, mock_proxy_client):
         result = await server.browser_press_key.fn(key="Enter")
 
         # Verify the result
-        assert result == {"status": "pressed"}
+        assert result["status"] == "pressed"
+        assert result["browser_instance"] == "0"
 
         # Verify the proxy client was called
         mock_proxy_client.call_tool.assert_called_once_with(
@@ -689,7 +705,8 @@ async def test_browser_type_basic(mock_pool_manager, mock_proxy_client):
         )
 
         # Verify the result
-        assert result == {"status": "typed"}
+        assert result["status"] == "typed"
+        assert result["browser_instance"] == "0"
 
         # Verify the proxy client was called
         mock_proxy_client.call_tool.assert_called_once_with(
@@ -747,7 +764,8 @@ async def test_browser_wait_for_time(mock_pool_manager, mock_proxy_client):
         result = await server.browser_wait_for.fn(time=2.5)
 
         # Verify the result
-        assert result == {"status": "waited"}
+        assert result["status"] == "waited"
+        assert result["browser_instance"] == "0"
 
         # Verify the proxy client was called
         mock_proxy_client.call_tool.assert_called_once_with(
@@ -767,7 +785,8 @@ async def test_browser_wait_for_time_integer(mock_pool_manager, mock_proxy_clien
         result = await server.browser_wait_for.fn(time=3)
 
         # Verify the result
-        assert result == {"status": "waited"}
+        assert result["status"] == "waited"
+        assert result["browser_instance"] == "0"
 
         # Verify the proxy client was called
         mock_proxy_client.call_tool.assert_called_once_with(
@@ -842,8 +861,9 @@ async def test_browser_navigate_then_wait(mock_pool_manager, mock_proxy_client, 
         # Then wait for 3 seconds
         wait_result = await server.browser_wait_for.fn(time=3)
 
-        # Verify wait succeeded
-        assert wait_result == {"status": "waited"}
+        # Verify wait succeeded (includes browser_instance)
+        assert wait_result["status"] == "waited"
+        assert wait_result["browser_instance"] == "0"
 
         # Verify both calls were made in correct order
         assert mock_proxy_client.call_tool.call_count == 2
@@ -871,7 +891,8 @@ async def test_browser_verify_element_visible(mock_pool_manager, mock_proxy_clie
         )
 
         # Verify the result
-        assert result == {"status": "verified"}
+        assert result["status"] == "verified"
+        assert result["browser_instance"] == "0"
 
         # Verify the proxy client was called
         mock_proxy_client.call_tool.assert_called_once_with(
@@ -891,7 +912,8 @@ async def test_browser_verify_text_visible(mock_pool_manager, mock_proxy_client)
         result = await server.browser_verify_text_visible.fn(text="Welcome")
 
         # Verify the result
-        assert result == {"status": "verified"}
+        assert result["status"] == "verified"
+        assert result["browser_instance"] == "0"
 
         # Verify the proxy client was called
         mock_proxy_client.call_tool.assert_called_once_with(
@@ -915,7 +937,8 @@ async def test_browser_verify_list_visible(mock_pool_manager, mock_proxy_client)
         )
 
         # Verify the result
-        assert result == {"status": "verified"}
+        assert result["status"] == "verified"
+        assert result["browser_instance"] == "0"
 
         # Verify the proxy client was called
         mock_proxy_client.call_tool.assert_called_once_with(
@@ -944,7 +967,8 @@ async def test_browser_verify_value(mock_pool_manager, mock_proxy_client):
         )
 
         # Verify the result
-        assert result == {"status": "verified"}
+        assert result["status"] == "verified"
+        assert result["browser_instance"] == "0"
 
         # Verify the proxy client was called
         mock_proxy_client.call_tool.assert_called_once_with(
@@ -1095,7 +1119,8 @@ async def test_browser_handle_dialog_accept(mock_pool_manager, mock_proxy_client
         result = await server.browser_handle_dialog.fn(accept=True)
 
         # Verify the result
-        assert result == {"status": "accepted"}
+        assert result["status"] == "accepted"
+        assert result["browser_instance"] == "0"
 
         # Verify the proxy client was called
         mock_proxy_client.call_tool.assert_called_once_with(
@@ -1142,7 +1167,8 @@ async def test_browser_file_upload(mock_pool_manager, mock_proxy_client):
         )
 
         # Verify the result
-        assert result == {"status": "uploaded"}
+        assert result["status"] == "uploaded"
+        assert result["browser_instance"] == "0"
 
         # Verify the proxy client was called
         mock_proxy_client.call_tool.assert_called_once_with(
@@ -1184,7 +1210,8 @@ async def test_browser_start_tracing(mock_pool_manager, mock_proxy_client):
         result = await server.browser_start_tracing.fn()
 
         # Verify the result
-        assert result == {"status": "tracing started"}
+        assert result["status"] == "tracing started"
+        assert result["browser_instance"] == "0"
 
         # Verify the proxy client was called
         mock_proxy_client.call_tool.assert_called_once_with(
@@ -1204,7 +1231,8 @@ async def test_browser_stop_tracing(mock_pool_manager, mock_proxy_client):
         result = await server.browser_stop_tracing.fn()
 
         # Verify the result
-        assert result == {"status": "tracing stopped"}
+        assert result["status"] == "tracing stopped"
+        assert result["browser_instance"] == "0"
 
         # Verify the proxy client was called
         mock_proxy_client.call_tool.assert_called_once_with(
@@ -1229,7 +1257,8 @@ async def test_browser_install(mock_pool_manager, mock_proxy_client):
         result = await server.browser_install.fn()
 
         # Verify the result
-        assert result == {"status": "installed"}
+        assert result["status"] == "installed"
+        assert result["browser_instance"] == "0"
 
         # Verify the proxy client was called
         mock_proxy_client.call_tool.assert_called_once_with(
@@ -1258,7 +1287,8 @@ async def test_browser_mouse_move_xy(mock_pool_manager, mock_proxy_client):
         )
 
         # Verify the result
-        assert result == {"status": "moved"}
+        assert result["status"] == "moved"
+        assert result["browser_instance"] == "0"
 
         # Verify the proxy client was called
         mock_proxy_client.call_tool.assert_called_once_with(
@@ -1281,8 +1311,9 @@ async def test_browser_mouse_click_xy(mock_pool_manager, mock_proxy_client):
             y=250.0
         )
 
-        # Verify the result
-        assert result == {"status": "clicked"}
+        # Verify the result includes browser_instance
+        assert result["status"] == "clicked"
+        assert result["browser_instance"] == "0"
 
         # Verify the proxy client was called
         mock_proxy_client.call_tool.assert_called_once_with(
@@ -1307,8 +1338,9 @@ async def test_browser_mouse_drag_xy(mock_pool_manager, mock_proxy_client):
             endY=200.0
         )
 
-        # Verify the result
-        assert result == {"status": "dragged"}
+        # Verify the result includes browser_instance
+        assert result["status"] == "dragged"
+        assert result["browser_instance"] == "0"
 
         # Verify the proxy client was called
         mock_proxy_client.call_tool.assert_called_once_with(

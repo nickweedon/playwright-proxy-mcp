@@ -48,8 +48,11 @@ def mock_pool_manager():
     pool = MagicMock()
     proxy_client = MagicMock()
 
-    # Setup lease_instance context manager
-    pool.lease_instance.return_value.__aenter__ = AsyncMock(return_value=proxy_client)
+    # Default instance ID for tests
+    test_instance_id = "0"
+
+    # Setup lease_instance context manager - returns (proxy_client, instance_id) tuple
+    pool.lease_instance.return_value.__aenter__ = AsyncMock(return_value=(proxy_client, test_instance_id))
     pool.lease_instance.return_value.__aexit__ = AsyncMock(return_value=None)
     pool_manager.get_pool.return_value = pool
 
@@ -168,7 +171,8 @@ class TestBrowserNavigateBack:
         with patch("playwright_proxy_mcp.server.pool_manager", pool_manager):
             result = await browser_navigate_back.fn()
 
-        assert result == {"status": "navigated_back"}
+        assert result["status"] == "navigated_back"
+        assert result["browser_instance"] == "0"
         proxy_client.call_tool.assert_called_once_with("browser_navigate_back", {})
 
 
@@ -194,7 +198,8 @@ class TestBrowserDrag:
                 endRef="e2"
             )
 
-        assert result == {"status": "dragged"}
+        assert result["status"] == "dragged"
+        assert result["browser_instance"] == "0"
         call_args = proxy_client.call_tool.call_args
         assert call_args[0][0] == "browser_drag"
         assert call_args[0][1]["startElement"] == "Item 1"
@@ -213,7 +218,8 @@ class TestBrowserHover:
         with patch("playwright_proxy_mcp.server.pool_manager", pool_manager):
             result = await browser_hover.fn(element="Menu Item", ref="e1")
 
-        assert result == {"status": "hovered"}
+        assert result["status"] == "hovered"
+        assert result["browser_instance"] == "0"
         call_args = proxy_client.call_tool.call_args
         assert call_args[0][1]["element"] == "Menu Item"
         assert call_args[0][1]["ref"] == "e1"
@@ -235,7 +241,8 @@ class TestBrowserSelectOption:
                 values=["USA", "Canada"]
             )
 
-        assert result == {"status": "selected"}
+        assert result["status"] == "selected"
+        assert result["browser_instance"] == "0"
         call_args = proxy_client.call_tool.call_args
         assert call_args[0][1]["values"] == ["USA", "Canada"]
 
@@ -276,7 +283,8 @@ class TestBrowserFillForm:
         with patch("playwright_proxy_mcp.server.pool_manager", pool_manager):
             result = await browser_fill_form.fn(fields=fields)
 
-        assert result == {"status": "filled"}
+        assert result["status"] == "filled"
+        assert result["browser_instance"] == "0"
         call_args = proxy_client.call_tool.call_args
         assert call_args[0][1]["fields"] == fields
 
@@ -298,7 +306,8 @@ class TestBrowserMouseTools:
         with patch("playwright_proxy_mcp.server.pool_manager", pool_manager):
             result = await browser_mouse_move_xy.fn(element="Canvas", x=100.5, y=200.5)
 
-        assert result == {"status": "moved"}
+        assert result["status"] == "moved"
+        assert result["browser_instance"] == "0"
         call_args = proxy_client.call_tool.call_args
         assert call_args[0][1]["x"] == 100.5
         assert call_args[0][1]["y"] == 200.5
@@ -311,7 +320,8 @@ class TestBrowserMouseTools:
         with patch("playwright_proxy_mcp.server.pool_manager", pool_manager):
             result = await browser_mouse_click_xy.fn(element="Canvas", x=50.0, y=75.0)
 
-        assert result == {"status": "clicked"}
+        assert result["status"] == "clicked"
+        assert result["browser_instance"] == "0"
         call_args = proxy_client.call_tool.call_args
         assert call_args[0][0] == "browser_mouse_click_xy"
 
@@ -329,7 +339,8 @@ class TestBrowserMouseTools:
                 endY=50.0
             )
 
-        assert result == {"status": "dragged"}
+        assert result["status"] == "dragged"
+        assert result["browser_instance"] == "0"
         call_args = proxy_client.call_tool.call_args
         assert call_args[0][1]["startX"] == 0.0
         assert call_args[0][1]["endX"] == 100.0
@@ -352,7 +363,8 @@ class TestBrowserKeyboardTools:
         with patch("playwright_proxy_mcp.server.pool_manager", pool_manager):
             result = await browser_press_key.fn(key="Enter")
 
-        assert result == {"status": "pressed"}
+        assert result["status"] == "pressed"
+        assert result["browser_instance"] == "0"
         call_args = proxy_client.call_tool.call_args
         assert call_args[0][1]["key"] == "Enter"
 
@@ -378,6 +390,7 @@ class TestBrowserVerificationTools:
             )
 
         assert result["visible"] is True
+        assert result["browser_instance"] == "0"
         call_args = proxy_client.call_tool.call_args
         assert call_args[0][0] == "browser_verify_element_visible"
 
@@ -390,6 +403,7 @@ class TestBrowserVerificationTools:
             result = await browser_verify_text_visible.fn(text="Welcome")
 
         assert result["visible"] is True
+        assert result["browser_instance"] == "0"
         call_args = proxy_client.call_tool.call_args
         assert call_args[0][1]["text"] == "Welcome"
 
@@ -406,6 +420,7 @@ class TestBrowserVerificationTools:
             )
 
         assert result["visible"] is True
+        assert result["browser_instance"] == "0"
         call_args = proxy_client.call_tool.call_args
         assert call_args[0][1]["items"] == ["Home", "About", "Contact"]
 
@@ -423,6 +438,7 @@ class TestBrowserVerificationTools:
             )
 
         assert result["matches"] is True
+        assert result["browser_instance"] == "0"
         call_args = proxy_client.call_tool.call_args
         assert call_args[0][1]["value"] == "test@example.com"
 
@@ -618,7 +634,8 @@ class TestBrowserTracingTools:
         with patch("playwright_proxy_mcp.server.pool_manager", pool_manager):
             result = await browser_start_tracing.fn()
 
-        assert result == {"tracing": "started"}
+        assert result["tracing"] == "started"
+        assert result["browser_instance"] == "0"
         proxy_client.call_tool.assert_called_once_with("browser_start_tracing", {})
 
     async def test_browser_stop_tracing(self, mock_pool_manager):
@@ -629,7 +646,8 @@ class TestBrowserTracingTools:
         with patch("playwright_proxy_mcp.server.pool_manager", pool_manager):
             result = await browser_stop_tracing.fn()
 
-        assert result == {"tracing": "stopped"}
+        assert result["tracing"] == "stopped"
+        assert result["browser_instance"] == "0"
         proxy_client.call_tool.assert_called_once_with("browser_stop_tracing", {})
 
 
@@ -650,7 +668,8 @@ class TestBrowserInstallTools:
         with patch("playwright_proxy_mcp.server.pool_manager", pool_manager):
             result = await browser_install.fn()
 
-        assert result == {"installed": True}
+        assert result["installed"] is True
+        assert result["browser_instance"] == "0"
         proxy_client.call_tool.assert_called_once_with("browser_install", {})
 
 
@@ -673,7 +692,8 @@ class TestBrowserRunCode:
                 code="async (page) => await page.title()"
             )
 
-        assert result == {"result": "Page Title"}
+        assert result["result"] == "Page Title"
+        assert result["browser_instance"] == "0"
         call_args = proxy_client.call_tool.call_args
         assert "async (page)" in call_args[0][1]["code"]
 

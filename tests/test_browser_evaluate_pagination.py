@@ -98,8 +98,9 @@ async def test_browser_evaluate_backward_compatibility(mock_pool_manager, mock_p
         # No pagination parameters
         result = await server.browser_evaluate.fn(function="() => 42")
 
-        # Should return original dict format
-        assert result == {"result": 42}
+        # Should return original dict format with browser_instance
+        assert result["result"] == 42
+        assert result["browser_instance"] == "0"
         assert "cache_key" not in result
         assert "total_items" not in result
 

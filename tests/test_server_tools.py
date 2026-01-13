@@ -34,11 +34,11 @@ def mock_pool_manager():
     pool = MagicMock()
     proxy_client = MagicMock()
 
-    # Setup lease_instance context manager
-    async def mock_lease():
-        yield proxy_client
+    # Default instance ID for tests
+    test_instance_id = "0"
 
-    pool.lease_instance.return_value.__aenter__ = AsyncMock(return_value=proxy_client)
+    # Setup lease_instance context manager - now returns (proxy_client, instance_id) tuple
+    pool.lease_instance.return_value.__aenter__ = AsyncMock(return_value=(proxy_client, test_instance_id))
     pool.lease_instance.return_value.__aexit__ = AsyncMock(return_value=None)
     pool_manager.get_pool.return_value = pool
 
@@ -228,7 +228,8 @@ class TestBrowserClick:
                 ref="button#login"
             )
 
-        assert result == {"status": "clicked"}
+        assert result["status"] == "clicked"
+        assert result["browser_instance"] == "0"
         proxy_client.call_tool.assert_called_once()
 
     async def test_browser_click_with_optional_params(self, mock_pool_manager):
@@ -266,7 +267,8 @@ class TestBrowserType:
                 text="testuser"
             )
 
-        assert result == {"status": "typed"}
+        assert result["status"] == "typed"
+        assert result["browser_instance"] == "0"
         call_args = proxy_client.call_tool.call_args
         assert call_args[0][1]["text"] == "testuser"
 
@@ -283,7 +285,8 @@ class TestBrowserWaitFor:
         with patch("playwright_proxy_mcp.server.pool_manager", pool_manager):
             result = await browser_wait_for.fn(time=2.5)
 
-        assert result == {"status": "waited"}
+        assert result["status"] == "waited"
+        assert result["browser_instance"] == "0"
         call_args = proxy_client.call_tool.call_args
         assert call_args[0][1]["time"] == 2.5
 
@@ -295,6 +298,7 @@ class TestBrowserWaitFor:
         with patch("playwright_proxy_mcp.server.pool_manager", pool_manager):
             result = await browser_wait_for.fn(text="Welcome")
 
+        assert result["browser_instance"] == "0"
         call_args = proxy_client.call_tool.call_args
         assert call_args[0][1]["text"] == "Welcome"
 
@@ -306,6 +310,7 @@ class TestBrowserWaitFor:
         with patch("playwright_proxy_mcp.server.pool_manager", pool_manager):
             result = await browser_wait_for.fn(textGone="Loading...")
 
+        assert result["browser_instance"] == "0"
         call_args = proxy_client.call_tool.call_args
         assert call_args[0][1]["textGone"] == "Loading..."
 
@@ -322,9 +327,10 @@ class TestBrowserScreenshot:
         )
 
         with patch("playwright_proxy_mcp.server.pool_manager", pool_manager):
-            blob_uri = await browser_take_screenshot.fn(filename="test.png")
+            result = await browser_take_screenshot.fn(filename="test.png")
 
-        assert blob_uri == "blob://123.png"
+        assert result["blob_uri"] == "blob://123.png"
+        assert result["browser_instance"] == "0"
 
     async def test_browser_take_screenshot_full_page(self, mock_pool_manager):
         """Test full page screenshot."""
@@ -334,12 +340,13 @@ class TestBrowserScreenshot:
         )
 
         with patch("playwright_proxy_mcp.server.pool_manager", pool_manager):
-            blob_uri = await browser_take_screenshot.fn(
+            result = await browser_take_screenshot.fn(
                 filename="full.png",
                 fullPage=True
             )
 
-        assert blob_uri == "blob://456.png"
+        assert result["blob_uri"] == "blob://456.png"
+        assert result["browser_instance"] == "0"
         call_args = proxy_client.call_tool.call_args
         assert call_args[0][1]["fullPage"] is True
 
@@ -351,11 +358,12 @@ class TestBrowserScreenshot:
         )
 
         with patch("playwright_proxy_mcp.server.pool_manager", pool_manager):
-            blob_uri = await browser_take_screenshot.fn(
+            result = await browser_take_screenshot.fn(
                 element="Logo",
                 ref="img#logo"
             )
 
+        assert result["browser_instance"] == "0"
         call_args = proxy_client.call_tool.call_args
         assert call_args[0][1]["element"] == "Logo"
         assert call_args[0][1]["ref"] == "img#logo"
@@ -384,9 +392,10 @@ class TestBrowserPdfSave:
         )
 
         with patch("playwright_proxy_mcp.server.pool_manager", pool_manager):
-            blob_uri = await browser_pdf_save.fn(filename="test.pdf")
+            result = await browser_pdf_save.fn(filename="test.pdf")
 
-        assert blob_uri == "blob://123.pdf"
+        assert result["blob_uri"] == "blob://123.pdf"
+        assert result["browser_instance"] == "0"
 
     async def test_browser_pdf_save_no_filename(self, mock_pool_manager):
         """Test PDF save without filename."""
@@ -396,8 +405,9 @@ class TestBrowserPdfSave:
         )
 
         with patch("playwright_proxy_mcp.server.pool_manager", pool_manager):
-            blob_uri = await browser_pdf_save.fn()
+            result = await browser_pdf_save.fn()
 
-        assert blob_uri == "blob://auto.pdf"
+        assert result["blob_uri"] == "blob://auto.pdf"
+        assert result["browser_instance"] == "0"
         call_args = proxy_client.call_tool.call_args
         assert "filename" not in call_args[0][1]

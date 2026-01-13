@@ -67,15 +67,17 @@ def mock_pool_manager(mock_proxy_client):
 
     This fixture mocks the entire pool manager chain:
     - pool_manager.get_pool() returns a mock pool
-    - pool.lease_instance() is an async context manager yielding mock proxy client
+    - pool.lease_instance() is an async context manager yielding (proxy_client, instance_id) tuple
     """
     # Create mock pool
     mock_pool = Mock()
 
     @asynccontextmanager
     async def mock_lease_instance(instance_key=None):
-        """Async context manager that yields the mock proxy client."""
-        yield mock_proxy_client
+        """Async context manager that yields (proxy_client, instance_id) tuple."""
+        # Return the instance_key if provided, otherwise default to "0"
+        instance_id = instance_key if instance_key else "0"
+        yield (mock_proxy_client, instance_id)
 
     mock_pool.lease_instance = mock_lease_instance
 

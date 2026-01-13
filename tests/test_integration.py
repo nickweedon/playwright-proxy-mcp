@@ -136,14 +136,22 @@ class TestIntegrationWorkflows:
         await server_module.browser_wait_for.fn(time=2.0)
 
         # Take a screenshot using the MCP server tool's underlying function (not proxy client directly!)
-        blob_uri = await server_module.browser_take_screenshot.fn(
+        screenshot_result = await server_module.browser_take_screenshot.fn(
             filename="amazon_homepage", fullPage=False
         )
 
-        # CRITICAL VERIFICATION: Result should be ONLY a blob URI string, not blob data
-        assert isinstance(blob_uri, str), (
-            f"Expected screenshot to return a string (blob URI), got {type(blob_uri)}: {blob_uri}"
+        # CRITICAL VERIFICATION: Result should be a dict with blob_uri and browser_instance
+        assert isinstance(screenshot_result, dict), (
+            f"Expected screenshot to return a dict, got {type(screenshot_result)}: {screenshot_result}"
         )
+        assert "blob_uri" in screenshot_result, (
+            f"Expected 'blob_uri' key in result, got: {screenshot_result}"
+        )
+        assert "browser_instance" in screenshot_result, (
+            f"Expected 'browser_instance' key in result, got: {screenshot_result}"
+        )
+
+        blob_uri = screenshot_result["blob_uri"]
 
         # Verify it's a blob URI, not base64 data
         assert blob_uri.startswith("blob://"), (
@@ -263,12 +271,16 @@ class TestIntegrationWorkflows:
         await server_module.browser_wait_for.fn(time=2.0)
 
         # Take viewport-only screenshot (full_page=False)
-        blob_uri = await server_module.browser_take_screenshot.fn(
+        screenshot_result = await server_module.browser_take_screenshot.fn(
             filename="amazon_viewport_test", fullPage=False
         )
 
-        # Verify we got a blob URI
-        assert isinstance(blob_uri, str), f"Expected blob URI string, got {type(blob_uri)}"
+        # Verify we got a dict with blob_uri and browser_instance
+        assert isinstance(screenshot_result, dict), f"Expected dict, got {type(screenshot_result)}"
+        assert "blob_uri" in screenshot_result, f"Expected 'blob_uri' key in result"
+        assert "browser_instance" in screenshot_result, f"Expected 'browser_instance' key in result"
+
+        blob_uri = screenshot_result["blob_uri"]
         assert blob_uri.startswith("blob://"), f"Expected blob:// URI, got {blob_uri}"
 
         # Extract blob ID and get metadata from blob manager

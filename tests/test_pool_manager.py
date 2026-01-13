@@ -212,9 +212,10 @@ class TestBrowserPool:
         with patch.object(browser_pool, "_create_instance", new=mock_create_instance):
             await browser_pool.initialize(mock_blob_manager, mock_middleware)
 
-        # Lease first instance (FIFO) - should get instance0's proxy_client
-        async with browser_pool.lease_instance() as leased:
-            assert leased == instance0.proxy_client
+        # Lease first instance (FIFO) - should get (proxy_client, instance_id) tuple
+        async with browser_pool.lease_instance() as (client, instance_id):
+            assert client == instance0.proxy_client
+            assert instance_id == "0"
             instance0.mark_leased.assert_called_once()
 
         # Verify instance was released
@@ -237,9 +238,10 @@ class TestBrowserPool:
         with patch.object(browser_pool, "_create_instance", new=mock_create_instance):
             await browser_pool.initialize(mock_blob_manager, mock_middleware)
 
-        # Lease by alias - should get instance1's proxy_client
-        async with browser_pool.lease_instance("debug") as leased:
-            assert leased == instance1.proxy_client
+        # Lease by alias - should get (proxy_client, instance_id) tuple
+        async with browser_pool.lease_instance("debug") as (client, instance_id):
+            assert client == instance1.proxy_client
+            assert instance_id == "1"
             instance1.mark_leased.assert_called_once()
 
         # Verify release
@@ -763,8 +765,9 @@ class TestBrowserPoolLeasing:
         with patch.object(browser_pool, "_create_instance", new=mock_create_instance):
             await browser_pool.initialize(Mock(), Mock())
 
-        async with browser_pool.lease_instance("0") as client:
+        async with browser_pool.lease_instance("0") as (client, instance_id):
             assert client == instance0.proxy_client
+            assert instance_id == "0"
             instance0.mark_leased.assert_called_once()
 
     async def test_lease_instance_by_alias(self, browser_pool):
@@ -783,9 +786,10 @@ class TestBrowserPoolLeasing:
         with patch.object(browser_pool, "_create_instance", new=mock_create_instance):
             await browser_pool.initialize(Mock(), Mock())
 
-        # Lease by alias should work too
-        async with browser_pool.lease_instance("first") as client:
+        # Lease by alias should work too - returns (client, instance_id) tuple
+        async with browser_pool.lease_instance("first") as (client, instance_id):
             assert client == instance0.proxy_client
+            assert instance_id == "0"
             instance0.mark_leased.assert_called_once()
 
 
@@ -877,19 +881,20 @@ class TestPoolManagerHealthCheck:
             mock_instance.health_check_error = None
             mock_pool.instances = {"0": mock_instance}
 
-            # Mock lease_instance to return a context manager
+            # Mock lease_instance to return a context manager that yields (client, instance_id) tuple
             @asynccontextmanager
             async def mock_lease(key=None):
-                yield Mock()
+                yield (Mock(), "0")
 
             mock_pool.lease_instance = mock_lease
             MockPool.return_value = mock_pool
 
             await manager.initialize()
 
-            # Use convenience method
-            async with manager.lease_instance() as client:
+            # Use convenience method - returns (client, instance_id) tuple
+            async with manager.lease_instance() as (client, instance_id):
                 assert client is not None
+                assert instance_id == "0"
 
 
 class TestBrowserPoolStatus:

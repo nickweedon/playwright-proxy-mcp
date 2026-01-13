@@ -38,12 +38,14 @@ class PlaywrightToolResponse(TypedDict, total=False):
     Generic response from a playwright tool.
 
     May contain blob references instead of inline binary data.
+    All browser tools include browser_instance to identify which instance was used.
     """
 
     success: bool
     message: str | None
     data: dict[str, str] | None
     blob_id: str | None
+    browser_instance: str  # The browser instance ID that was used
 
 
 class NavigationResponse(TypedDict, total=False):
@@ -64,6 +66,7 @@ class NavigationResponse(TypedDict, total=False):
     snapshot: str | dict[str, Any] | list[dict[str, Any]] | None
     error: str | None
     output_format: str
+    browser_instance: str  # The browser instance ID that was used
 
 
 class EvaluationResponse(TypedDict, total=False):
@@ -82,6 +85,18 @@ class EvaluationResponse(TypedDict, total=False):
     has_more: bool
     result: Any
     error: str | None
+    browser_instance: str  # The browser instance ID that was used
+
+
+class BlobResultResponse(TypedDict):
+    """
+    Response for tools that return blob URIs (screenshots, PDFs).
+
+    These tools store binary data as blobs and return a URI reference.
+    """
+
+    blob_uri: str  # URI to the stored blob (e.g., "blob://...")
+    browser_instance: str  # The browser instance ID that was used
 
 
 class BulkCommand(TypedDict, total=False):

@@ -214,7 +214,7 @@ class BrowserPool:
     @asynccontextmanager
     async def lease_instance(
         self, instance_key: str | None = None
-    ) -> AsyncIterator[PlaywrightProxyClient]:
+    ) -> AsyncIterator[tuple[PlaywrightProxyClient, str]]:
         """
         Lease a browser instance from the pool.
 
@@ -226,7 +226,7 @@ class BrowserPool:
             instance_key: Specific instance ID or alias, or None for any available
 
         Yields:
-            PlaywrightProxyClient for the leased instance
+            Tuple of (PlaywrightProxyClient, instance_id) for the leased instance
 
         Raises:
             ValueError: If instance_key is invalid or pool is not initialized
@@ -234,15 +234,15 @@ class BrowserPool:
 
         Examples:
             # Lease any available instance
-            async with pool.lease_instance() as client:
+            async with pool.lease_instance() as (client, instance_id):
                 await client.call_tool(...)
 
             # Lease specific instance by ID
-            async with pool.lease_instance("0") as client:
+            async with pool.lease_instance("0") as (client, instance_id):
                 await client.call_tool(...)
 
             # Lease specific instance by alias
-            async with pool.lease_instance("main_browser") as client:
+            async with pool.lease_instance("main_browser") as (client, instance_id):
                 await client.call_tool(...)
         """
         if not self.lease_queue:
@@ -278,8 +278,8 @@ class BrowserPool:
         )
 
         try:
-            # Yield proxy client to caller
-            yield instance.proxy_client
+            # Yield proxy client and instance ID to caller
+            yield (instance.proxy_client, instance.instance_id)
         finally:
             # Always release lease, even on exception
             instance.mark_released()
@@ -500,7 +500,7 @@ class PoolManager:
     @asynccontextmanager
     async def lease_instance(
         self, pool_name: str | None = None, instance_key: str | None = None
-    ) -> AsyncIterator[PlaywrightProxyClient]:
+    ) -> AsyncIterator[tuple[PlaywrightProxyClient, str]]:
         """
         Convenience method to lease an instance from a pool.
 
@@ -509,11 +509,11 @@ class PoolManager:
             instance_key: Instance ID/alias, or None for any available
 
         Yields:
-            PlaywrightProxyClient for the leased instance
+            Tuple of (PlaywrightProxyClient, instance_id) for the leased instance
         """
         pool = self.get_pool(pool_name)
-        async with pool.lease_instance(instance_key) as client:
-            yield client
+        async with pool.lease_instance(instance_key) as (client, instance_id):
+            yield (client, instance_id)
 
     async def get_status(self, pool_name: str | None = None) -> dict:
         """

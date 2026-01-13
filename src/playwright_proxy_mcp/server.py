@@ -121,7 +121,7 @@ When a tool returns a blob reference (blob://timestamp-hash.png), use a separate
 
 ## Browser Pool Architecture
 
-The server maintains a pool of browser instances for parallel operations.
+The server maintains a pool of browser instances for parallel operations. These instances will be leased out for usage and then returned to the pool for reuse.
 
 ### Check Available Instances
 
@@ -131,154 +131,138 @@ Use `browser_pool_status()` to see:
 - `available_instances`: Healthy and not currently leased
 - Each instance has an `id` (e.g., "0", "1", "2", "3", "4")
 
-## CRITICAL: Browser Instance Affinity
+## Running Parallel Browser Operations
 
-**Problem**: Without specifying `browser_instance`, each tool call may go to a different browser instance:
-- `browser_navigate` loads page on instance 0
-- `browser_evaluate` runs on instance 1 (which shows `about:blank`)
-- Data extraction fails
+To run multiple browser operations in parallel, call `browser_execute_bulk` multiple times **in the same message**. Each bulk call automatically gets assigned to an available browser instance.
 
-**Solution**: Always specify `browser_instance` for multi-step workflows.
-
-### Correct Pattern
-
+**Correct - Parallel searches:**
+```python
+# In a SINGLE message, call browser_execute_bulk multiple times:
+browser_execute_bulk(commands=[...search A...])  # Auto-assigned to instance 0
+browser_execute_bulk(commands=[...search B...])  # Auto-assigned to instance 1
+browser_execute_bulk(commands=[...search C...])  # Auto-assigned to instance 2
 ```
+
+**Wrong - Do NOT manually specify browser_instance for parallelism:**
+```python
+# This is unnecessary and shows misunderstanding of the API:
+browser_execute_bulk(commands=[...], browser_instance="0")
+browser_execute_bulk(commands=[...], browser_instance="1")
+```
+
+The `browser_instance` parameter is only needed when you must resume work on a specific instance across separate message turns (e.g., maintaining login state). For parallel operations within one message, omit it entirely.
+
+## Two-Phase Data Extraction (MANDATORY)
+
+**NEVER write `browser_evaluate` JavaScript or JMESPath queries until you have seen the actual page structure.**
+
+Guessing at CSS selectors, DOM structure, or ARIA snapshot paths will fail. Always follow this two-phase approach:
+
+### Phase 1: Discover Page Structure
+
+```python
 browser_execute_bulk(
     commands=[
         {"tool": "browser_navigate", "args": {"url": "https://example.com", "silent_mode": true}},
-        {"tool": "browser_wait_for", "args": {"time": 5}},
-        {"tool": "browser_evaluate", "args": {"function": "() => document.title"}, "return_result": true}
-    ],
-    browser_instance="0"  # All commands use same instance
+        {"tool": "browser_wait_for", "args": {"time": 3}},
+        {"tool": "browser_snapshot", "args": {"flatten": true, "limit": 100}, "return_result": true}
+    ]
 )
 ```
 
-### Incorrect Pattern (Will Fail)
+Review the snapshot output. Identify the actual element roles, names, refs, and nesting structure.
 
-```
-# These may run on different instances!
-browser_navigate(url="https://example.com")
-browser_evaluate(function="() => document.title")  # Returns empty - wrong instance
-```
+### Phase 2: Extract Data Based on Observed Structure
 
-## Parallel Operations
+Only after reviewing the snapshot, write targeted extraction using either method:
 
-With multiple browser instances, run truly parallel searches by assigning each workflow to a different instance:
-
-```
-# Run simultaneously - each on a different browser instance
-browser_execute_bulk(commands=[...], browser_instance="0")
-browser_execute_bulk(commands=[...], browser_instance="1")
-browser_execute_bulk(commands=[...], browser_instance="2")
-browser_execute_bulk(commands=[...], browser_instance="3")
-```
-
-## Recommended Workflow Pattern
-
-### Single Page Data Extraction
-
-```
+**Using browser_evaluate (for complex DOM extraction):**
+```python
 browser_execute_bulk(
     commands=[
-        {"tool": "browser_navigate", "args": {"url": "https://example.com/page", "silent_mode": true}},
-        {"tool": "browser_wait_for", "args": {"time": 5}},
-        {"tool": "browser_evaluate", "args": {"function": "() => { /* extract data */ return data; }"}, "return_result": true}
-    ],
-    browser_instance="0",
-    stop_on_error=true
+        {"tool": "browser_evaluate", "args": {
+            "function": "() => { /* selectors based on what you SAW in the snapshot */ }"
+        }, "return_result": true}
+    ]
 )
 ```
 
-### Key Parameters
-
-- `browser_instance`: Lock workflow to specific instance (e.g., "0", "1")
-- `silent_mode: true`: Skip returning large ARIA snapshots on navigation
-- `return_result: true`: Only on commands whose output you need
-- `stop_on_error: true`: Halt on first failure
-
-## Handling Large Responses
-
-Navigation and snapshots can return very large ARIA trees (100KB-500KB+). When this happens:
-1. Output is saved to a file, and you receive the file path
-2. Use `jq` or `grep` to extract specific data from the saved file
-3. Prefer `browser_evaluate` with JavaScript to extract only needed data
-
-### Efficient Data Extraction
-
-Instead of parsing large ARIA snapshots, use JavaScript evaluation:
-
-```
-browser_evaluate({
-    function: `() => {
-        const results = [];
-        document.querySelectorAll('table tbody tr').forEach((row, i) => {
-            if (i > 20) return;  // Limit results
-            const text = row.innerText;
-            const match = text.match(/pattern/);
-            if (match) {
-                results.push({ data: match[0], info: text.substring(0, 200) });
-            }
-        });
-        return { count: results.length, results };
-    }`
-})
+**Using JMESPath queries (for ARIA snapshot filtering):**
+```python
+browser_snapshot(
+    jmespath_query="[].children[?role == 'listitem']",  # Query based on OBSERVED structure
+    output_format="json"
+)
 ```
 
-## Wait Times
+### Why This Matters
 
-Dynamic pages need time to load JavaScript content:
+- **ARIA snapshots** show semantic structure (roles, names, refs) which differs from raw HTML classes
+- **JMESPath queries** depend on the exact nesting depth and field names in the snapshot
+- **CSS selectors** in `browser_evaluate` depend on actual class names and DOM hierarchy
+- The snapshot is your source of truth - never assume structure based on other websites
 
-- Static HTML: 1-2 seconds
-- Light JavaScript: 3-4 seconds
-- Heavy SPA / React: 5-8 seconds
-- Infinite scroll: Wait for specific element
+### Common Extraction Mistakes
 
-Use `browser_wait_for` with:
-- `time`: Fixed wait in seconds
-- `text`: Wait for specific text to appear
-- `textGone`: Wait for text to disappear
+| Mistake | Example | Why It Fails |
+|---------|---------|--------------|
+| Guessing CSS classes | `document.querySelectorAll('.product-item')` | Class names vary per site |
+| Assuming JMESPath depth | `[].children[?role == 'button']` | Buttons may be nested deeper |
+| Hardcoding element refs | `ref: "e42"` | Refs change between page loads |
+| Assuming field names | `name.value` vs `name` | Structure varies by element type |
 
-## Screenshots and PDFs
+## Instance Affinity Within Bulk Calls
 
-Binary outputs are stored as blobs and returned as `blob://` URIs:
+All commands within a single `browser_execute_bulk` call run on the same browser instance. This is automatic - you don't need to configure it.
 
-```
-browser_take_screenshot(filename="screenshot.png")
-# Returns: blob://1768223722-c0c0d972b8a2269f.png
-
-browser_pdf_save(filename="page.pdf")
-# Returns: blob://1768223722-abcd1234.pdf
-```
-
-## Common Pitfalls
-
-1. **Forgetting `browser_instance`**: Results in `about:blank` when evaluating
-2. **Not waiting long enough**: Dynamic content not loaded
-3. **Parsing ARIA snapshots**: Use `browser_evaluate` instead for structured data
-4. **Sequential assumptions**: Different calls may hit different instances without explicit binding
-5. **Large snapshot handling**: Use `silent_mode: true` and extract data via JavaScript
-
-## Quick Reference
-
-```
-# Check pool status
-browser_pool_status()
-
-# Single operation with instance affinity
+```python
 browser_execute_bulk(
     commands=[
-        {"tool": "browser_navigate", "args": {"url": URL, "silent_mode": true}},
-        {"tool": "browser_wait_for", "args": {"time": 5}},
-        {"tool": "browser_evaluate", "args": {"function": JS_CODE}, "return_result": true}
-    ],
-    browser_instance="0"
+        {"tool": "browser_navigate", "args": {"url": "..."}},
+        {"tool": "browser_wait_for", "args": {"time": 3}},
+        {"tool": "browser_snapshot", "args": {...}, "return_result": true}
+    ]
+    # All three commands run on the same instance - guaranteed
 )
-
-# Parallel operations (call simultaneously with different instances)
-browser_execute_bulk(commands=[...], browser_instance="0")
-browser_execute_bulk(commands=[...], browser_instance="1")
-browser_execute_bulk(commands=[...], browser_instance="2")
 ```
+
+## When to Specify browser_instance
+
+Only specify `browser_instance` when you need to **return to a specific browser session** in a later message turn:
+
+```python
+# Message 1: Log in (note the instance used from the response)
+browser_execute_bulk(commands=[...login flow...])
+# Response shows it used instance "2"
+
+# Message 2: Continue on that same logged-in session
+browser_execute_bulk(commands=[...authenticated action...], browser_instance="2")
+```
+
+## Snapshot Pagination
+
+For large pages, use pagination to avoid overwhelming context:
+
+```python
+# First page
+browser_snapshot(flatten=true, limit=100)
+# Returns cache_key="nav_abc123", has_more=True
+
+# Next page
+browser_snapshot(cache_key="nav_abc123", offset=100, limit=100)
+```
+
+## Common Pitfalls Summary
+
+| Mistake | Why It Fails | Correct Approach |
+|---------|--------------|------------------|
+| Specifying `browser_instance` for parallel bulk calls | Unnecessary; parallelism comes from multiple bulk calls in one message | Omit `browser_instance`; let server auto-assign |
+| Writing `browser_evaluate` with guessed selectors | DOM structure unknown; selectors fail silently returning `[]` | Always snapshot first, then write extraction |
+| Writing JMESPath queries without seeing snapshot | Path depth and field names unknown; returns empty or errors | Always snapshot first, examine structure, then query |
+| Separate tool calls without `browser_instance` | May hit different instances; page state lost | Use `browser_execute_bulk` or specify instance |
+| Not waiting after navigation | Dynamic content not loaded | Add `browser_wait_for` with 3-5 seconds |
+| Using `silent_mode: true` on discovery phase | Can't see page structure to write queries | Only use `silent_mode` after structure is known |
+
     """,
     lifespan=lifespan_context,
 )
@@ -305,7 +289,7 @@ async def _call_playwright_tool(
     arguments: dict[str, Any],
     browser_pool: str | None = None,
     browser_instance: str | None = None,
-) -> Any:
+) -> tuple[Any, str]:
     """
     Call a playwright-mcp tool through the pool manager.
 
@@ -316,7 +300,7 @@ async def _call_playwright_tool(
         browser_instance: Optional instance ID or alias (defaults to FIFO selection)
 
     Returns:
-        Tool result (potentially transformed by middleware)
+        Tuple of (tool_result, instance_id) where instance_id is the browser instance used
     """
     if not pool_manager:
         raise RuntimeError("Pool manager not initialized")
@@ -325,9 +309,27 @@ async def _call_playwright_tool(
     pool = pool_manager.get_pool(browser_pool)
 
     # Lease an instance from the pool (RAII pattern via context manager)
-    async with pool.lease_instance(browser_instance) as proxy_client:
+    async with pool.lease_instance(browser_instance) as (proxy_client, instance_id):
         # Call tool through the leased proxy client
-        return await proxy_client.call_tool(tool_name, arguments)
+        result = await proxy_client.call_tool(tool_name, arguments)
+        return (result, instance_id)
+
+
+def _add_browser_instance_to_result(result: Any, instance_id: str) -> dict[str, Any]:
+    """
+    Add browser_instance to a tool result.
+
+    Args:
+        result: The tool result (dict or other value)
+        instance_id: The browser instance ID that was used
+
+    Returns:
+        Dict with browser_instance field added
+    """
+    if isinstance(result, dict):
+        result["browser_instance"] = instance_id
+        return result
+    return {"result": result, "browser_instance": instance_id}
 
 
 # =============================================================================
@@ -436,7 +438,7 @@ async def _fetch_fresh_snapshot(
     cache_url: str = "",
     browser_pool: str | None = None,
     browser_instance: str | None = None,
-) -> tuple[list[Any] | None, str, str | None]:
+) -> tuple[list[Any] | None, str, str | None, str]:
     """
     Fetch and cache a fresh ARIA snapshot via navigation or snapshot tool.
 
@@ -450,25 +452,25 @@ async def _fetch_fresh_snapshot(
         browser_instance: Target browser instance ID or alias
 
     Returns:
-        Tuple of (snapshot_json, cache_key, error_message)
+        Tuple of (snapshot_json, cache_key, error_message, instance_id)
     """
     from .utils.aria_processor import parse_aria_snapshot
 
-    raw_result = await call_playwright_fn(tool_name, args, browser_pool, browser_instance)
+    raw_result, instance_id = await call_playwright_fn(tool_name, args, browser_pool, browser_instance)
 
     if not isinstance(raw_result, dict):
-        return None, "", f"Unexpected response format from {tool_name}"
+        return None, "", f"Unexpected response format from {tool_name}", instance_id
 
     yaml_snapshot = _extract_yaml_from_response(raw_result)
     if not yaml_snapshot:
-        return None, "", "No ARIA snapshot found in response"
+        return None, "", "No ARIA snapshot found in response", instance_id
 
     snapshot_json, parse_errors = parse_aria_snapshot(yaml_snapshot)
     if parse_errors:
-        return None, "", f"ARIA snapshot parse errors: {'; '.join(parse_errors)}"
+        return None, "", f"ARIA snapshot parse errors: {'; '.join(parse_errors)}", instance_id
 
     key = navigation_cache.create(cache_url, snapshot_json)
-    return snapshot_json, key, None
+    return snapshot_json, key, None, instance_id
 
 
 def _process_snapshot_data(
@@ -691,17 +693,20 @@ async def browser_navigate(
     # Silent mode: just navigate, no processing
     if silent_mode:
         try:
-            await _call_playwright_tool("browser_navigate", {"url": url}, browser_pool, browser_instance)
-            return NavigationResponse(
+            _, instance_id = await _call_playwright_tool("browser_navigate", {"url": url}, browser_pool, browser_instance)
+            response = NavigationResponse(
                 success=True, url=url, cache_key="", total_items=0, offset=0, limit=limit,
                 has_more=False, snapshot=None, error=None, output_format=output_format,
             )
+            response["browser_instance"] = instance_id  # type: ignore[typeddict-unknown-key]
+            return response
         except Exception as e:
             return _create_navigation_error(url, f"Navigation failed: {e}", 0, limit, "", output_format)
 
     # Get or fetch snapshot data
     snapshot_json = None
     key = ""
+    instance_id = ""
 
     try:
         # Try cache first if key provided
@@ -710,10 +715,15 @@ async def browser_navigate(
             if entry:
                 snapshot_json = entry.snapshot_json
                 key = cache_key
+                # For cached results, we still need to get an instance for the response
+                pool = pool_manager.get_pool(browser_pool) if pool_manager else None
+                if pool:
+                    async with pool.lease_instance(browser_instance) as (_, inst_id):
+                        instance_id = inst_id
 
         # Fetch fresh if no cache or cache miss
         if snapshot_json is None:
-            snapshot_json, key, error = await _fetch_fresh_snapshot(
+            snapshot_json, key, error, instance_id = await _fetch_fresh_snapshot(
                 navigation_cache, _call_playwright_tool, "browser_navigate", {"url": url}, url,
                 browser_pool, browser_instance
             )
@@ -731,12 +741,14 @@ async def browser_navigate(
     # Apply pagination
     paginated_data, total, has_more = _paginate_result_data(result_data, offset, limit)
 
-    # Return response
-    return NavigationResponse(
+    # Return response with browser_instance
+    response = NavigationResponse(
         success=True, url=url, cache_key=key, total_items=total, offset=offset, limit=limit,
         has_more=has_more, snapshot=format_output(paginated_data, output_format),
         error=None, output_format=output_format.lower(),
     )
+    response["browser_instance"] = instance_id  # type: ignore[typeddict-unknown-key]
+    return response
 
 
 @mcp.tool()
@@ -753,9 +765,10 @@ async def browser_navigate_back(
         browser_instance: Target a specific instance within the pool. Default: None (FIFO selection)
 
     Returns:
-        Navigation result
+        Navigation result with browser_instance indicating which instance was used
     """
-    return await _call_playwright_tool("browser_navigate_back", {}, browser_pool, browser_instance)
+    result, instance_id = await _call_playwright_tool("browser_navigate_back", {}, browser_pool, browser_instance)
+    return _add_browser_instance_to_result(result, instance_id)
 
 
 # =============================================================================
@@ -1080,7 +1093,7 @@ async def browser_take_screenshot(
     fullPage: bool | None = None,
     browser_pool: str | None = None,
     browser_instance: str | None = None,
-) -> str:
+) -> dict[str, Any]:
     """
     Take a screenshot of the current page. You can't perform actions based on the screenshot, use browser_snapshot for actions.
 
@@ -1101,7 +1114,7 @@ async def browser_take_screenshot(
         browser_instance: Target a specific instance within the pool. Default: None (FIFO selection)
 
     Returns:
-        Blob URI reference (blob://timestamp-hash.png or blob://timestamp-hash.jpeg)
+        Dict with blob_uri (blob://timestamp-hash.png or blob://timestamp-hash.jpeg) and browser_instance
     """
     args: dict[str, Any] = {"type": type}
     if filename is not None:
@@ -1113,13 +1126,13 @@ async def browser_take_screenshot(
     if fullPage is not None:
         args["fullPage"] = fullPage
 
-    result = await _call_playwright_tool("browser_take_screenshot", args, browser_pool, browser_instance)
+    result, instance_id = await _call_playwright_tool("browser_take_screenshot", args, browser_pool, browser_instance)
     blob_id = _extract_blob_id_from_response(result)
 
     if not blob_id:
         raise RuntimeError(f"Failed to extract blob URI from screenshot result: {result}")
 
-    return blob_id
+    return {"blob_uri": blob_id, "browser_instance": instance_id}
 
 
 @mcp.tool()
@@ -1128,7 +1141,7 @@ async def browser_pdf_save(
     filename: str | None = None,
     browser_pool: str | None = None,
     browser_instance: str | None = None,
-) -> str:
+) -> dict[str, Any]:
     """
     Save page as PDF.
 
@@ -1142,19 +1155,19 @@ async def browser_pdf_save(
         browser_instance: Target a specific instance within the pool. Default: None (FIFO selection)
 
     Returns:
-        Blob URI reference (blob://timestamp-hash.pdf)
+        Dict with blob_uri (blob://timestamp-hash.pdf) and browser_instance
     """
-    args = {}
+    args: dict[str, Any] = {}
     if filename is not None:
         args["filename"] = filename
 
-    result = await _call_playwright_tool("browser_pdf_save", args, browser_pool, browser_instance)
+    result, instance_id = await _call_playwright_tool("browser_pdf_save", args, browser_pool, browser_instance)
     blob_id = _extract_blob_id_from_response(result)
 
     if not blob_id:
         raise RuntimeError(f"Failed to extract blob URI from PDF result: {result}")
 
-    return blob_id
+    return {"blob_uri": blob_id, "browser_instance": instance_id}
 
 
 # =============================================================================
@@ -1180,9 +1193,10 @@ async def browser_run_code(
         browser_instance: Target a specific instance within the pool. Default: None (FIFO selection)
 
     Returns:
-        Code execution result
+        Code execution result with browser_instance indicating which instance was used
     """
-    return await _call_playwright_tool("browser_run_code", {"code": code}, browser_pool, browser_instance)
+    result, instance_id = await _call_playwright_tool("browser_run_code", {"code": code}, browser_pool, browser_instance)
+    return _add_browser_instance_to_result(result, instance_id)
 
 
 def _create_evaluation_error(
@@ -1346,7 +1360,8 @@ async def browser_evaluate(
             args["element"] = element
         if ref is not None:
             args["ref"] = ref
-        return await _call_playwright_tool("browser_evaluate", args, browser_pool, browser_instance)
+        result, instance_id = await _call_playwright_tool("browser_evaluate", args, browser_pool, browser_instance)
+        return _add_browser_instance_to_result(result, instance_id)
 
     # Pagination mode: validate parameters
     validation_error = _validate_evaluation_params(offset, limit)
@@ -1356,6 +1371,7 @@ async def browser_evaluate(
     # Check cache or evaluate fresh
     result_data = None
     key = ""
+    instance_id = ""
 
     # Access module-level variable as attribute (can be patched in tests)
     import sys
@@ -1369,6 +1385,12 @@ async def browser_evaluate(
             if entry:
                 result_data = entry.snapshot_json  # Reuse cached result
                 key = cache_key
+                # For cached results, we still need to get an instance for the response
+                # Use the requested instance or get one via FIFO
+                pool = pool_manager.get_pool(browser_pool) if pool_manager else None
+                if pool:
+                    async with pool.lease_instance(browser_instance) as (_, inst_id):
+                        instance_id = inst_id
 
         # Evaluate if not cached
         if result_data is None:
@@ -1379,10 +1401,10 @@ async def browser_evaluate(
             if ref is not None:
                 args["ref"] = ref
 
-            raw_result = await _call_playwright_tool("browser_evaluate", args, browser_pool, browser_instance)
+            raw_result, instance_id = await _call_playwright_tool("browser_evaluate", args, browser_pool, browser_instance)
 
             # Extract result from {"result": ...} format
-            result_data = raw_result.get("result")
+            result_data = raw_result.get("result") if isinstance(raw_result, dict) else raw_result
 
             # Store in cache
             if nav_cache is not None:
@@ -1407,7 +1429,7 @@ async def browser_evaluate(
 
     # Return paginated response
     from typing import cast
-    return cast(dict[str, Any], EvaluationResponse(
+    response = EvaluationResponse(
         success=True,
         cache_key=key,
         total_items=total,
@@ -1416,7 +1438,10 @@ async def browser_evaluate(
         has_more=has_more,
         result=paginated_data,
         error=None,
-    ))
+    )
+    result_dict = cast(dict[str, Any], response)
+    result_dict["browser_instance"] = instance_id
+    return result_dict
 
 
 # =============================================================================
@@ -1570,7 +1595,8 @@ async def browser_snapshot(
     """
     # If filename provided, use original behavior
     if filename is not None:
-        return await _call_playwright_tool("browser_snapshot", {"filename": filename}, browser_pool, browser_instance)
+        result, instance_id = await _call_playwright_tool("browser_snapshot", {"filename": filename}, browser_pool, browser_instance)
+        return _add_browser_instance_to_result(result, instance_id)
 
     from .types import NavigationResponse
     from .utils.aria_processor import format_output
@@ -1591,17 +1617,20 @@ async def browser_snapshot(
     # Silent mode: just capture, no processing
     if silent_mode:
         try:
-            await _call_playwright_tool("browser_snapshot", {}, browser_pool, browser_instance)
-            return NavigationResponse(
+            _, instance_id = await _call_playwright_tool("browser_snapshot", {}, browser_pool, browser_instance)
+            response = NavigationResponse(
                 success=True, url="", cache_key="", total_items=0, offset=0, limit=limit,
                 has_more=False, snapshot=None, error=None, output_format=output_format,
             )
+            response["browser_instance"] = instance_id  # type: ignore[typeddict-unknown-key]
+            return response
         except Exception as e:
             return _create_navigation_error("", f"Snapshot failed: {e}", 0, limit, "", output_format)
 
     # Get or fetch snapshot data
     snapshot_json = None
     key = ""
+    instance_id = ""
 
     try:
         # Try cache first if key provided
@@ -1610,10 +1639,15 @@ async def browser_snapshot(
             if entry:
                 snapshot_json = entry.snapshot_json
                 key = cache_key
+                # For cached results, we still need to get an instance for the response
+                pool = pool_manager.get_pool(browser_pool) if pool_manager else None
+                if pool:
+                    async with pool.lease_instance(browser_instance) as (_, inst_id):
+                        instance_id = inst_id
 
         # Fetch fresh if no cache or cache miss
         if snapshot_json is None:
-            snapshot_json, key, error = await _fetch_fresh_snapshot(
+            snapshot_json, key, error, instance_id = await _fetch_fresh_snapshot(
                 navigation_cache, _call_playwright_tool, "browser_snapshot", {},
                 "", browser_pool, browser_instance
             )
@@ -1631,12 +1665,14 @@ async def browser_snapshot(
     # Apply pagination
     paginated_data, total, has_more = _paginate_result_data(result_data, offset, limit)
 
-    # Return response
-    return NavigationResponse(
+    # Return response with browser_instance
+    response = NavigationResponse(
         success=True, url="", cache_key=key, total_items=total, offset=offset, limit=limit,
         has_more=has_more, snapshot=format_output(paginated_data, output_format),
         error=None, output_format=output_format.lower(),
     )
+    response["browser_instance"] = instance_id  # type: ignore[typeddict-unknown-key]
+    return response
 
 
 @mcp.tool()
@@ -1673,7 +1709,8 @@ async def browser_click(
     if modifiers is not None:
         args["modifiers"] = modifiers
 
-    return await _call_playwright_tool("browser_click", args, browser_pool, browser_instance)
+    result, instance_id = await _call_playwright_tool("browser_click", args, browser_pool, browser_instance)
+    return _add_browser_instance_to_result(result, instance_id)
 
 
 @mcp.tool()
@@ -1700,7 +1737,7 @@ async def browser_drag(
     Returns:
         Drag result
     """
-    return await _call_playwright_tool(
+    result, instance_id = await _call_playwright_tool(
         "browser_drag",
         {
             "startElement": startElement,
@@ -1711,6 +1748,7 @@ async def browser_drag(
         browser_pool,
         browser_instance,
     )
+    return _add_browser_instance_to_result(result, instance_id)
 
 
 @mcp.tool()
@@ -1733,7 +1771,8 @@ async def browser_hover(
     Returns:
         Hover result
     """
-    return await _call_playwright_tool("browser_hover", {"element": element, "ref": ref}, browser_pool, browser_instance)
+    result, instance_id = await _call_playwright_tool("browser_hover", {"element": element, "ref": ref}, browser_pool, browser_instance)
+    return _add_browser_instance_to_result(result, instance_id)
 
 
 @mcp.tool()
@@ -1758,10 +1797,11 @@ async def browser_select_option(
     Returns:
         Selection result
     """
-    return await _call_playwright_tool(
+    result, instance_id = await _call_playwright_tool(
         "browser_select_option", {"element": element, "ref": ref, "values": values},
         browser_pool, browser_instance
     )
+    return _add_browser_instance_to_result(result, instance_id)
 
 
 @mcp.tool()
@@ -1784,7 +1824,8 @@ async def browser_generate_locator(
     Returns:
         Generated locator
     """
-    return await _call_playwright_tool("browser_generate_locator", {"element": element, "ref": ref}, browser_pool, browser_instance)
+    result, instance_id = await _call_playwright_tool("browser_generate_locator", {"element": element, "ref": ref}, browser_pool, browser_instance)
+    return _add_browser_instance_to_result(result, instance_id)
 
 
 # =============================================================================
@@ -1815,7 +1856,8 @@ async def browser_fill_form(
     Returns:
         Fill result
     """
-    return await _call_playwright_tool("browser_fill_form", {"fields": fields}, browser_pool, browser_instance)
+    result, instance_id = await _call_playwright_tool("browser_fill_form", {"fields": fields}, browser_pool, browser_instance)
+    return _add_browser_instance_to_result(result, instance_id)
 
 
 # =============================================================================
@@ -1845,10 +1887,11 @@ async def browser_mouse_move_xy(
     Returns:
         Mouse move result
     """
-    return await _call_playwright_tool(
+    result, instance_id = await _call_playwright_tool(
         "browser_mouse_move_xy", {"element": element, "x": x, "y": y},
         browser_pool, browser_instance
     )
+    return _add_browser_instance_to_result(result, instance_id)
 
 
 @mcp.tool()
@@ -1873,10 +1916,11 @@ async def browser_mouse_click_xy(
     Returns:
         Mouse click result
     """
-    return await _call_playwright_tool(
+    result, instance_id = await _call_playwright_tool(
         "browser_mouse_click_xy", {"element": element, "x": x, "y": y},
         browser_pool, browser_instance
     )
+    return _add_browser_instance_to_result(result, instance_id)
 
 
 @mcp.tool()
@@ -1905,7 +1949,7 @@ async def browser_mouse_drag_xy(
     Returns:
         Mouse drag result
     """
-    return await _call_playwright_tool(
+    result, instance_id = await _call_playwright_tool(
         "browser_mouse_drag_xy",
         {
             "element": element,
@@ -1917,6 +1961,7 @@ async def browser_mouse_drag_xy(
         browser_pool,
         browser_instance,
     )
+    return _add_browser_instance_to_result(result, instance_id)
 
 
 # =============================================================================
@@ -1942,7 +1987,8 @@ async def browser_press_key(
     Returns:
         Key press result
     """
-    return await _call_playwright_tool("browser_press_key", {"key": key}, browser_pool, browser_instance)
+    result, instance_id = await _call_playwright_tool("browser_press_key", {"key": key}, browser_pool, browser_instance)
+    return _add_browser_instance_to_result(result, instance_id)
 
 
 @mcp.tool()
@@ -1978,7 +2024,8 @@ async def browser_type(
     if slowly is not None:
         args["slowly"] = slowly
 
-    return await _call_playwright_tool("browser_type", args, browser_pool, browser_instance)
+    result, instance_id = await _call_playwright_tool("browser_type", args, browser_pool, browser_instance)
+    return _add_browser_instance_to_result(result, instance_id)
 
 
 # =============================================================================
@@ -2009,7 +2056,7 @@ async def browser_wait_for(
         Wait result
     """
     # With stdio transport, no need to chunk waits - no ping timeout issue
-    args = {}
+    args: dict[str, Any] = {}
     if time is not None:
         args["time"] = time
     if text is not None:
@@ -2017,7 +2064,8 @@ async def browser_wait_for(
     if textGone is not None:
         args["textGone"] = textGone
 
-    return await _call_playwright_tool("browser_wait_for", args, browser_pool, browser_instance)
+    result, instance_id = await _call_playwright_tool("browser_wait_for", args, browser_pool, browser_instance)
+    return _add_browser_instance_to_result(result, instance_id)
 
 
 # =============================================================================
@@ -2045,10 +2093,11 @@ async def browser_verify_element_visible(
     Returns:
         Verification result
     """
-    return await _call_playwright_tool(
+    result, instance_id = await _call_playwright_tool(
         "browser_verify_element_visible", {"role": role, "accessibleName": accessibleName},
         browser_pool, browser_instance
     )
+    return _add_browser_instance_to_result(result, instance_id)
 
 
 @mcp.tool()
@@ -2069,7 +2118,8 @@ async def browser_verify_text_visible(
     Returns:
         Verification result
     """
-    return await _call_playwright_tool("browser_verify_text_visible", {"text": text}, browser_pool, browser_instance)
+    result, instance_id = await _call_playwright_tool("browser_verify_text_visible", {"text": text}, browser_pool, browser_instance)
+    return _add_browser_instance_to_result(result, instance_id)
 
 
 @mcp.tool()
@@ -2094,10 +2144,11 @@ async def browser_verify_list_visible(
     Returns:
         Verification result
     """
-    return await _call_playwright_tool(
+    result, instance_id = await _call_playwright_tool(
         "browser_verify_list_visible", {"element": element, "ref": ref, "items": items},
         browser_pool, browser_instance
     )
+    return _add_browser_instance_to_result(result, instance_id)
 
 
 @mcp.tool()
@@ -2124,10 +2175,11 @@ async def browser_verify_value(
     Returns:
         Verification result
     """
-    return await _call_playwright_tool(
+    result, instance_id = await _call_playwright_tool(
         "browser_verify_value", {"type": type, "element": element, "ref": ref, "value": value},
         browser_pool, browser_instance
     )
+    return _add_browser_instance_to_result(result, instance_id)
 
 
 # =============================================================================
@@ -2153,7 +2205,8 @@ async def browser_network_requests(
     Returns:
         List of network requests
     """
-    return await _call_playwright_tool("browser_network_requests", {"includeStatic": includeStatic}, browser_pool, browser_instance)
+    result, instance_id = await _call_playwright_tool("browser_network_requests", {"includeStatic": includeStatic}, browser_pool, browser_instance)
+    return _add_browser_instance_to_result(result, instance_id)
 
 
 # =============================================================================
@@ -2185,7 +2238,8 @@ async def browser_tabs(
     if index is not None:
         args["index"] = index
 
-    return await _call_playwright_tool("browser_tabs", args, browser_pool, browser_instance)
+    result, instance_id = await _call_playwright_tool("browser_tabs", args, browser_pool, browser_instance)
+    return _add_browser_instance_to_result(result, instance_id)
 
 
 # =============================================================================
@@ -2212,7 +2266,8 @@ async def browser_console_messages(
     Returns:
         List of console messages
     """
-    return await _call_playwright_tool("browser_console_messages", {"level": level}, browser_pool, browser_instance)
+    result, instance_id = await _call_playwright_tool("browser_console_messages", {"level": level}, browser_pool, browser_instance)
+    return _add_browser_instance_to_result(result, instance_id)
 
 
 # =============================================================================
@@ -2244,7 +2299,8 @@ async def browser_handle_dialog(
     if promptText is not None:
         args["promptText"] = promptText
 
-    return await _call_playwright_tool("browser_handle_dialog", args, browser_pool, browser_instance)
+    result, instance_id = await _call_playwright_tool("browser_handle_dialog", args, browser_pool, browser_instance)
+    return _add_browser_instance_to_result(result, instance_id)
 
 
 # =============================================================================
@@ -2271,11 +2327,12 @@ async def browser_file_upload(
     Returns:
         File upload result
     """
-    args = {}
+    args: dict[str, Any] = {}
     if paths is not None:
         args["paths"] = paths
 
-    return await _call_playwright_tool("browser_file_upload", args, browser_pool, browser_instance)
+    result, instance_id = await _call_playwright_tool("browser_file_upload", args, browser_pool, browser_instance)
+    return _add_browser_instance_to_result(result, instance_id)
 
 
 # =============================================================================
@@ -2299,7 +2356,8 @@ async def browser_start_tracing(
     Returns:
         Trace start result
     """
-    return await _call_playwright_tool("browser_start_tracing", {}, browser_pool, browser_instance)
+    result, instance_id = await _call_playwright_tool("browser_start_tracing", {}, browser_pool, browser_instance)
+    return _add_browser_instance_to_result(result, instance_id)
 
 
 @mcp.tool()
@@ -2318,7 +2376,8 @@ async def browser_stop_tracing(
     Returns:
         Trace stop result
     """
-    return await _call_playwright_tool("browser_stop_tracing", {}, browser_pool, browser_instance)
+    result, instance_id = await _call_playwright_tool("browser_stop_tracing", {}, browser_pool, browser_instance)
+    return _add_browser_instance_to_result(result, instance_id)
 
 
 # =============================================================================
@@ -2342,7 +2401,8 @@ async def browser_install(
     Returns:
         Installation result
     """
-    return await _call_playwright_tool("browser_install", {}, browser_pool, browser_instance)
+    result, instance_id = await _call_playwright_tool("browser_install", {}, browser_pool, browser_instance)
+    return _add_browser_instance_to_result(result, instance_id)
 
 
 # =============================================================================

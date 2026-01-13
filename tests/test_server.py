@@ -62,9 +62,10 @@ async def test_call_playwright_tool_success(mock_pool_manager, mock_proxy_client
 
     with patch("playwright_proxy_mcp.server.pool_manager", mock_pool_manager):
         # Use browser_ prefix directly (no mapping needed)
-        result = await _call_playwright_tool("browser_navigate", {"url": "https://example.com"})
+        result, instance_id = await _call_playwright_tool("browser_navigate", {"url": "https://example.com"})
 
         assert result == {"status": "success", "data": "transformed"}
+        assert instance_id == "0"
 
         # Verify call_tool was called with the correct tool name
         mock_proxy_client.call_tool.assert_called_once_with(
@@ -112,7 +113,7 @@ async def test_playwright_screenshot_returns_blob_uri(mock_pool_manager, mock_pr
 
     with patch("playwright_proxy_mcp.server.pool_manager", mock_pool_manager):
         # Call _call_playwright_tool directly since the tool is wrapped by FastMCP
-        result = await _call_playwright_tool(
+        result, instance_id = await _call_playwright_tool(
             "browser_take_screenshot", {"filename": "test", "fullPage": True}
         )
 
@@ -121,6 +122,7 @@ async def test_playwright_screenshot_returns_blob_uri(mock_pool_manager, mock_pr
         assert result["screenshot"] == "blob://1234567890-abc123.png"
         assert result["screenshot_size_kb"] == 150
         assert result["screenshot_mime_type"] == "image/png"
+        assert instance_id == "0"
 
         # Verify correct tool call
         mock_proxy_client.call_tool.assert_called_once_with(
@@ -300,7 +302,8 @@ class TestBrowserNavigateBackTool:
         mock_proxy_client.call_tool = AsyncMock(return_value={"status": "back"})
         with patch("playwright_proxy_mcp.server.pool_manager", mock_pool_manager):
             result = await browser_navigate_back.fn()
-        assert result == {"status": "back"}
+        assert result["status"] == "back"
+        assert result["browser_instance"] == "0"
 
 
 @pytest.mark.asyncio
@@ -311,7 +314,8 @@ class TestBrowserDragTool:
         mock_proxy_client.call_tool = AsyncMock(return_value={"status": "dragged"})
         with patch("playwright_proxy_mcp.server.pool_manager", mock_pool_manager):
             result = await browser_drag.fn("Start", "e1", "End", "e2")
-        assert result == {"status": "dragged"}
+        assert result["status"] == "dragged"
+        assert result["browser_instance"] == "0"
 
 
 @pytest.mark.asyncio
@@ -322,7 +326,8 @@ class TestBrowserHoverTool:
         mock_proxy_client.call_tool = AsyncMock(return_value={"status": "hovered"})
         with patch("playwright_proxy_mcp.server.pool_manager", mock_pool_manager):
             result = await browser_hover.fn("Menu", "e1")
-        assert result == {"status": "hovered"}
+        assert result["status"] == "hovered"
+        assert result["browser_instance"] == "0"
 
 
 @pytest.mark.asyncio
@@ -333,7 +338,8 @@ class TestBrowserSelectOptionTool:
         mock_proxy_client.call_tool = AsyncMock(return_value={"status": "selected"})
         with patch("playwright_proxy_mcp.server.pool_manager", mock_pool_manager):
             result = await browser_select_option.fn("Dropdown", "e1", ["A", "B"])
-        assert result == {"status": "selected"}
+        assert result["status"] == "selected"
+        assert result["browser_instance"] == "0"
 
 
 @pytest.mark.asyncio
@@ -356,7 +362,8 @@ class TestBrowserFillFormTool:
         fields = [{"name": "Field", "type": "textbox", "ref": "e1", "value": "val"}]
         with patch("playwright_proxy_mcp.server.pool_manager", mock_pool_manager):
             result = await browser_fill_form.fn(fields)
-        assert result == {"status": "filled"}
+        assert result["status"] == "filled"
+        assert result["browser_instance"] == "0"
 
 
 @pytest.mark.asyncio
@@ -367,19 +374,22 @@ class TestBrowserMouseTools:
         mock_proxy_client.call_tool = AsyncMock(return_value={"status": "moved"})
         with patch("playwright_proxy_mcp.server.pool_manager", mock_pool_manager):
             result = await browser_mouse_move_xy.fn("Canvas", 100.0, 200.0)
-        assert result == {"status": "moved"}
+        assert result["status"] == "moved"
+        assert result["browser_instance"] == "0"
 
     async def test_mouse_click(self, mock_pool_manager, mock_proxy_client):
         mock_proxy_client.call_tool = AsyncMock(return_value={"status": "clicked"})
         with patch("playwright_proxy_mcp.server.pool_manager", mock_pool_manager):
             result = await browser_mouse_click_xy.fn("Canvas", 50.0, 75.0)
-        assert result == {"status": "clicked"}
+        assert result["status"] == "clicked"
+        assert result["browser_instance"] == "0"
 
     async def test_mouse_drag(self, mock_pool_manager, mock_proxy_client):
         mock_proxy_client.call_tool = AsyncMock(return_value={"status": "dragged"})
         with patch("playwright_proxy_mcp.server.pool_manager", mock_pool_manager):
             result = await browser_mouse_drag_xy.fn("Slider", 0.0, 50.0, 100.0, 50.0)
-        assert result == {"status": "dragged"}
+        assert result["status"] == "dragged"
+        assert result["browser_instance"] == "0"
 
 
 @pytest.mark.asyncio
@@ -390,7 +400,8 @@ class TestBrowserPressKeyTool:
         mock_proxy_client.call_tool = AsyncMock(return_value={"status": "pressed"})
         with patch("playwright_proxy_mcp.server.pool_manager", mock_pool_manager):
             result = await browser_press_key.fn("Enter")
-        assert result == {"status": "pressed"}
+        assert result["status"] == "pressed"
+        assert result["browser_instance"] == "0"
 
 
 @pytest.mark.asyncio
@@ -523,13 +534,15 @@ class TestBrowserTracingTools:
         mock_proxy_client.call_tool = AsyncMock(return_value={"tracing": "started"})
         with patch("playwright_proxy_mcp.server.pool_manager", mock_pool_manager):
             result = await browser_start_tracing.fn()
-        assert result == {"tracing": "started"}
+        assert result["tracing"] == "started"
+        assert result["browser_instance"] == "0"
 
     async def test_stop_tracing(self, mock_pool_manager, mock_proxy_client):
         mock_proxy_client.call_tool = AsyncMock(return_value={"tracing": "stopped"})
         with patch("playwright_proxy_mcp.server.pool_manager", mock_pool_manager):
             result = await browser_stop_tracing.fn()
-        assert result == {"tracing": "stopped"}
+        assert result["tracing"] == "stopped"
+        assert result["browser_instance"] == "0"
 
 
 @pytest.mark.asyncio
@@ -540,7 +553,8 @@ class TestBrowserInstallTool:
         mock_proxy_client.call_tool = AsyncMock(return_value={"installed": True})
         with patch("playwright_proxy_mcp.server.pool_manager", mock_pool_manager):
             result = await browser_install.fn()
-        assert result == {"installed": True}
+        assert result["installed"] is True
+        assert result["browser_instance"] == "0"
 
 
 @pytest.mark.asyncio
@@ -551,7 +565,8 @@ class TestBrowserRunCodeTool:
         mock_proxy_client.call_tool = AsyncMock(return_value={"result": "Page Title"})
         with patch("playwright_proxy_mcp.server.pool_manager", mock_pool_manager):
             result = await browser_run_code.fn("async (page) => page.title()")
-        assert result == {"result": "Page Title"}
+        assert result["result"] == "Page Title"
+        assert result["browser_instance"] == "0"
 
 
 @pytest.mark.asyncio
@@ -623,7 +638,8 @@ class TestBrowserWaitForTool:
         mock_proxy_client.call_tool = AsyncMock(return_value={"status": "waited"})
         with patch("playwright_proxy_mcp.server.pool_manager", mock_pool_manager):
             result = await browser_wait_for.fn(time=1000)
-        assert result == {"status": "waited"}
+        assert result["status"] == "waited"
+        assert result["browser_instance"] == "0"
 
 
 @pytest.mark.asyncio
@@ -673,7 +689,8 @@ class TestBrowserTakeScreenshotTool:
         )
         with patch("playwright_proxy_mcp.server.pool_manager", mock_pool_manager):
             result = await browser_take_screenshot.fn(filename="test")
-        assert result == "blob://test.png"
+        assert result["blob_uri"] == "blob://test.png"
+        assert result["browser_instance"] == "0"
 
 
 @pytest.mark.asyncio
@@ -685,9 +702,9 @@ class TestFetchFreshSnapshot:
         mock_cache.create.return_value = "cache_key"
 
         async def mock_call_tool(tool, args, browser_pool=None, browser_instance=None):
-            return {"content": [{"type": "text", "text": "- role: document\n  children: []"}]}
+            return ({"content": [{"type": "text", "text": "- role: document\n  children: []"}]}, "0")
 
-        snapshot, key, error = await _fetch_fresh_snapshot(
+        snapshot, key, error, instance_id = await _fetch_fresh_snapshot(
             mock_cache,
             mock_call_tool,
             "browser_snapshot",
@@ -696,14 +713,15 @@ class TestFetchFreshSnapshot:
         )
         # May have parse errors or success
         assert snapshot is not None or error is not None
+        assert instance_id == "0"
 
     async def test_fetch_with_parse_error(self):
         mock_cache = Mock()
 
         async def mock_call_tool(tool, args, browser_pool=None, browser_instance=None):
-            return {"content": [{"type": "text", "text": "invalid: yaml: content:"}]}
+            return ({"content": [{"type": "text", "text": "invalid: yaml: content:"}]}, "0")
 
-        snapshot, key, error = await _fetch_fresh_snapshot(
+        snapshot, key, error, instance_id = await _fetch_fresh_snapshot(
             mock_cache,
             mock_call_tool,
             "browser_snapshot",
@@ -712,6 +730,7 @@ class TestFetchFreshSnapshot:
         )
         # May succeed with empty or error
         assert error is not None or snapshot is not None
+        assert instance_id == "0"
 
 
 class TestProcessSnapshotData:
@@ -1153,9 +1172,9 @@ class TestFetchFreshSnapshotEdgeCases:
         mock_cache = Mock()
 
         async def mock_call_tool(tool, args, browser_pool=None, browser_instance=None):
-            return {"content": []}
+            return ({"content": []}, "0")
 
-        snapshot, key, error = await _fetch_fresh_snapshot(
+        snapshot, key, error, instance_id = await _fetch_fresh_snapshot(
             mock_cache,
             mock_call_tool,
             "browser_snapshot",
@@ -1163,6 +1182,7 @@ class TestFetchFreshSnapshotEdgeCases:
             ""
         )
         # Should handle empty response - may return error or None snapshot
+        assert instance_id == "0"
 
     @pytest.mark.asyncio
     async def test_fetch_with_valid_yaml(self):
@@ -1170,9 +1190,9 @@ class TestFetchFreshSnapshotEdgeCases:
         mock_cache.set = Mock()
 
         async def mock_call_tool(tool, args, browser_pool=None, browser_instance=None):
-            return {"content": [{"type": "text", "text": "- role: document\n  name: Test"}]}
+            return ({"content": [{"type": "text", "text": "- role: document\n  name: Test"}]}, "0")
 
-        snapshot, key, error = await _fetch_fresh_snapshot(
+        snapshot, key, error, instance_id = await _fetch_fresh_snapshot(
             mock_cache,
             mock_call_tool,
             "browser_snapshot",
@@ -1181,6 +1201,7 @@ class TestFetchFreshSnapshotEdgeCases:
         )
         # Should successfully parse YAML
         assert error is None or snapshot is not None
+        assert instance_id == "0"
 
 
 @pytest.mark.asyncio
