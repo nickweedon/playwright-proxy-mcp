@@ -129,16 +129,15 @@ class PlaywrightProxyClient:
         Check if proxy client is healthy with ping verification.
 
         Returns:
-            True if client is started and can respond to tool calls
+            True if client is started and can respond to MCP ping
         """
         if not self._started or not self._client:
             return False
 
-        # Try a lightweight tool call to verify MCP responsiveness
+        # Use MCP ping to verify responsiveness (doesn't require browser)
         try:
-            # browser_tabs list is lightweight and doesn't navigate
             await asyncio.wait_for(
-                self._client.call_tool("browser_tabs", {"action": "list"}),
+                self._client.ping(),
                 timeout=3.0
             )
             return True

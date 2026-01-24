@@ -134,13 +134,13 @@ class TestPlaywrightProxyClient:
         """Test health check when started and healthy."""
         proxy_client._started = True
 
-        # Mock client with successful tool call
+        # Mock client with successful ping
         mock_client = Mock()
-        mock_client.call_tool = AsyncMock(return_value=Mock())
+        mock_client.ping = AsyncMock(return_value=True)
         proxy_client._client = mock_client
 
         assert await proxy_client.is_healthy()
-        mock_client.call_tool.assert_called_once_with("browser_tabs", {"action": "list"})
+        mock_client.ping.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_is_healthy_not_started(self, proxy_client):
@@ -148,13 +148,13 @@ class TestPlaywrightProxyClient:
         assert not await proxy_client.is_healthy()
 
     @pytest.mark.asyncio
-    async def test_is_healthy_tool_call_fails(self, proxy_client):
-        """Test health check when tool call fails."""
+    async def test_is_healthy_ping_fails(self, proxy_client):
+        """Test health check when ping fails."""
         proxy_client._started = True
 
-        # Mock client with failing tool call
+        # Mock client with failing ping
         mock_client = Mock()
-        mock_client.call_tool = AsyncMock(side_effect=Exception("Connection failed"))
+        mock_client.ping = AsyncMock(side_effect=Exception("Connection failed"))
         proxy_client._client = mock_client
 
         assert not await proxy_client.is_healthy()
@@ -774,12 +774,12 @@ class TestProxyClientEdgeCases:
         """Test is_healthy handles timeout."""
         proxy_client._started = True
 
-        async def slow_call(*args, **kwargs):
+        async def slow_ping(*args, **kwargs):
             await asyncio.sleep(10)
-            return Mock()
+            return True
 
         mock_client = Mock()
-        mock_client.call_tool = slow_call
+        mock_client.ping = slow_ping
         proxy_client._client = mock_client
 
         # The internal timeout of 3.0 seconds should trigger
