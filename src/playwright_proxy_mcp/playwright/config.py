@@ -12,7 +12,7 @@ import logging
 import os
 import re
 from pathlib import Path
-from typing import TypedDict
+from typing import Any, Mapping, TypedDict
 
 from dotenv import load_dotenv
 
@@ -179,6 +179,32 @@ _CONFIG_KEY_MAPPINGS: list[tuple[str, str, str]] = [
     # WSL Windows
     ("WSL_WINDOWS", "wsl_windows", "bool"),
 ]
+
+
+def _log_config(config: Mapping[str, Any], title: str, indent: int = 2) -> None:
+    """
+    Log a configuration dictionary with proper formatting.
+
+    Args:
+        config: Configuration dictionary to log
+        title: Title for the config section
+        indent: Number of spaces for indentation
+    """
+    prefix = " " * indent
+    logger.info(f"{title}:")
+    if not config:
+        logger.info(f"{prefix}(empty)")
+        return
+
+    for key, value in sorted(config.items()):
+        # Mask sensitive values
+        if key in ("extension_token", "storage_state") and value:
+            display_value = "***MASKED***"
+        elif isinstance(value, str) and len(value) > 100:
+            display_value = f"{value[:100]}... (truncated)"
+        else:
+            display_value = value
+        logger.info(f"{prefix}{key}: {display_value}")
 
 
 def _apply_config_overrides(config: PlaywrightConfig, prefix: str) -> None:
@@ -432,8 +458,7 @@ def load_pool_manager_config() -> PoolManagerConfig:
     if "viewport_size" not in global_config:
         global_config["viewport_size"] = "1920x1080"
 
-    logger.info(f"Global defaults: browser={global_config['browser']}, "
-                f"headless={global_config['headless']}")
+    _log_config(global_config, "Global Configuration (with defaults)")
 
     # Discover pools
     pool_names = _discover_pools()
@@ -450,11 +475,37 @@ def load_pool_manager_config() -> PoolManagerConfig:
     all_aliases: set[str] = set()
 
     for pool_name in pool_names:
-        logger.info(f"Parsing pool '{pool_name}'...")
+        logger.info("-" * 50)
+        logger.info(f"Pool: {pool_name}")
+        logger.info("-" * 50)
         pool_config = _parse_pool_config(pool_name, global_config)
-        logger.info(f"  Pool '{pool_name}': {pool_config['instances']} instance(s), "
-                   f"default={pool_config['is_default']}, "
-                   f"browser={pool_config['base_config'].get('browser', 'N/A')}")
+        logger.info(f"  instances: {pool_config['instances']}")
+        logger.info(f"  is_default: {pool_config['is_default']}")
+        logger.info(f"  description: {pool_config['description'] or '(none)'}")
+        _log_config(pool_config["base_config"], f"  Pool '{pool_name}' Base Config", indent=4)
+
+        # Log each instance's config
+        for inst_cfg in pool_config["instance_configs"]:
+            inst_id = inst_cfg["instance_id"]
+            alias = inst_cfg["alias"]
+            alias_str = f" (alias: {alias})" if alias else ""
+            logger.info(f"  Instance {inst_id}{alias_str}:")
+            # Only log config keys that differ from pool base config
+            inst_config = inst_cfg["config"]
+            base_config = pool_config["base_config"]
+            diff_keys = [
+                k for k in inst_config
+                if k not in base_config or inst_config[k] != base_config[k]
+            ]
+            if diff_keys:
+                for key in sorted(diff_keys):
+                    value = inst_config[key]
+                    if key in ("extension_token", "storage_state") and value:
+                        value = "***MASKED***"
+                    logger.info(f"      {key}: {value} (overrides pool default)")
+            else:
+                logger.info("      (inherits all settings from pool)")
+
         _validate_pool_config(pool_config, all_aliases)
         pools.append(pool_config)
 
@@ -497,10 +548,16 @@ def load_blob_config() -> BlobConfig:
     Returns:
         BlobConfig with all settings
     """
-    return {
+    config: BlobConfig = {
         "storage_root": os.getenv("BLOB_STORAGE_ROOT", "/mnt/blob-storage"),
         "max_size_mb": _get_int_env("BLOB_MAX_SIZE_MB", 500),
         "ttl_hours": _get_int_env("BLOB_TTL_HOURS", 24),
         "size_threshold_kb": _get_int_env("BLOB_SIZE_THRESHOLD_KB", 50),
         "cleanup_interval_minutes": _get_int_env("BLOB_CLEANUP_INTERVAL_MINUTES", 60),
     }
+    logger.info("=" * 60)
+    logger.info("Blob Storage Configuration")
+    logger.info("=" * 60)
+    _log_config(config, "Blob Config")
+    logger.info("=" * 60)
+    return config
