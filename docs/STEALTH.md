@@ -12,39 +12,74 @@ The stealth implementation uses a JavaScript initialization script that runs **b
 
 ## Configuration
 
-### Enabling Stealth Mode
+### Quick Start: ENABLE_STEALTH Macro
 
-To enable stealth mode, point the `INIT_SCRIPT` configuration to the bundled `stealth.js` file:
+The easiest way to enable stealth mode is using the `ENABLE_STEALTH` convenience macro. This automatically configures optimal stealth settings:
 
 ```bash
 # Global configuration (applies to all pools/instances)
-PW_MCP_PROXY_INIT_SCRIPT=/opt/src/mcp/playwright-proxy-mcp/src/playwright_proxy_mcp/playwright/stealth.js
+PW_MCP_PROXY_ENABLE_STEALTH=true
 
 # Pool-specific
-PW_MCP_PROXY__MYPOOL_INIT_SCRIPT=/opt/src/mcp/playwright-proxy-mcp/src/playwright_proxy_mcp/playwright/stealth.js
+PW_MCP_PROXY__MYPOOL_ENABLE_STEALTH=true
 
 # Instance-specific
-PW_MCP_PROXY__MYPOOL__0_INIT_SCRIPT=/opt/src/mcp/playwright-proxy-mcp/src/playwright_proxy_mcp/playwright/stealth.js
+PW_MCP_PROXY__MYPOOL__0_ENABLE_STEALTH=true
+```
+
+When `ENABLE_STEALTH=true`, the following defaults are automatically applied (unless overridden by more specific configuration):
+- `INIT_SCRIPT`: Set to bundled stealth.js path
+- `HEADLESS`: Set to `false` (headed mode for more realistic behavior)
+- `USER_AGENT`: Set to a recent Chrome user agent string
+
+### Manual Configuration (Advanced)
+
+For fine-grained control, you can manually configure stealth settings:
+
+```bash
+# Manually specify init script path
+PW_MCP_PROXY_INIT_SCRIPT=/path/to/custom-stealth.js
+
+# Custom user agent
+PW_MCP_PROXY_USER_AGENT=Mozilla/5.0 (Windows NT 10.0; Win64; x64)...
+
+# Other stealth-related settings
+PW_MCP_PROXY_HEADLESS=false
+PW_MCP_PROXY_IGNORE_HTTPS_ERRORS=false
 ```
 
 ### Related Configuration
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
+| `PW_MCP_PROXY_ENABLE_STEALTH` | boolean | `false` | **Macro**: Auto-configure stealth settings (init script, headless, user agent) |
 | `PW_MCP_PROXY_INIT_SCRIPT` | string | - | Path to initialization script (e.g., stealth.js) |
 | `PW_MCP_PROXY_USER_AGENT` | string | (browser default) | Custom user agent string |
+| `PW_MCP_PROXY_HEADLESS` | boolean | `true` | Run browser in headless mode |
 | `PW_MCP_PROXY_IGNORE_HTTPS_ERRORS` | boolean | `false` | Ignore HTTPS certificate errors |
 
 ### Example Configuration
 
+#### Simple (Using ENABLE_STEALTH Macro)
+
 ```bash
-# Enable stealth mode with bundled script
+# Enable stealth mode with one setting
+PW_MCP_PROXY_ENABLE_STEALTH=true
+
+# Optional: Use persistent profile for cookies/cache
+PW_MCP_PROXY_USER_DATA_DIR=/app/browser-profile
+
+# Define pool
+PW_MCP_PROXY__DEFAULT_INSTANCES=1
+PW_MCP_PROXY__DEFAULT_IS_DEFAULT=true
+```
+
+#### Advanced (Manual Configuration)
+
+```bash
+# Manually configure each stealth setting
 PW_MCP_PROXY_INIT_SCRIPT=/opt/src/mcp/playwright-proxy-mcp/src/playwright_proxy_mcp/playwright/stealth.js
-
-# Use a realistic user agent
 PW_MCP_PROXY_USER_AGENT=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36
-
-# Optional: Use headed mode for more realistic behavior
 PW_MCP_PROXY_HEADLESS=false
 
 # Optional: Use persistent profile for cookies/cache
@@ -170,31 +205,24 @@ For maximum stealth, combine the init script with:
 ### Example: Maximum Stealth Configuration
 
 ```bash
-# Enable stealth script
-PW_MCP_PROXY_INIT_SCRIPT=/opt/src/mcp/playwright-proxy-mcp/src/playwright_proxy_mcp/playwright/stealth.js
+# Enable stealth mode (automatic configuration)
+PW_MCP_PROXY_ENABLE_STEALTH=true
 
-# Use headed mode
-PW_MCP_PROXY_HEADLESS=false
-
-# Realistic viewport
+# Additional stealth-enhancing settings
 PW_MCP_PROXY_VIEWPORT_SIZE=1920x1080
-
-# Current Chrome user agent
-PW_MCP_PROXY_USER_AGENT=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36
-
-# Persistent profile
 PW_MCP_PROXY_USER_DATA_DIR=/app/browser-profile
 PW_MCP_PROXY_ISOLATED=false
-
-# Save session data
 PW_MCP_PROXY_SAVE_SESSION=true
 
 # Pool configuration
 PW_MCP_PROXY__DEFAULT_INSTANCES=1
 PW_MCP_PROXY__DEFAULT_IS_DEFAULT=true
 
-# Use proxy (if needed)
+# Optional: Use proxy for IP rotation
 # PW_MCP_PROXY_PROXY_SERVER=http://proxy.example.com:8080
+
+# Optional: Override auto-configured user agent with custom one
+# PW_MCP_PROXY_USER_AGENT=Mozilla/5.0 (Custom...)
 ```
 
 ## Testing Stealth Mode

@@ -233,6 +233,53 @@ def _apply_config_overrides(config: PlaywrightConfig, prefix: str) -> None:
             config[config_key] = _get_int_env(env_var, 5000)  # type: ignore[literal-required]
 
 
+def _apply_stealth_defaults(config: PlaywrightConfig, prefix: str) -> None:
+    """
+    Apply stealth mode defaults if ENABLE_STEALTH is set.
+
+    This is a convenience macro that automatically configures stealth-related
+    settings when enabled. Individual settings can still be overridden by
+    more specific configuration values.
+
+    Args:
+        config: Config dict to update in-place
+        prefix: Environment variable prefix (e.g., "PW_MCP_PROXY_" or "PW_MCP_PROXY__POOL_")
+    """
+    enable_stealth_var = f"{prefix}ENABLE_STEALTH"
+    enable_stealth = _get_bool_env(enable_stealth_var, False)
+
+    if not enable_stealth:
+        return
+
+    logger.info(f"Stealth macro enabled via {enable_stealth_var}=true")
+    logger.info("  Applying stealth defaults (can be overridden by specific config)...")
+
+    # Set init_script to bundled stealth.js if not already configured
+    if "init_script" not in config:
+        stealth_script_path = Path(__file__).parent / "stealth.js"
+        if stealth_script_path.exists():
+            config["init_script"] = str(stealth_script_path)
+            logger.info(f"  → init_script: {config['init_script']}")
+        else:
+            logger.warning(f"  ⚠ Stealth script not found at {stealth_script_path}")
+
+    # Set headless to false for more realistic behavior (if not already set)
+    if "headless" not in config:
+        config["headless"] = False
+        logger.info(f"  → headless: {config['headless']} (headed mode for better stealth)")
+
+    # Set realistic user agent if not already configured
+    if "user_agent" not in config:
+        # Use a recent Chrome user agent
+        config["user_agent"] = (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+        )
+        logger.info(f"  → user_agent: {config['user_agent']}")
+
+    logger.info("  Stealth defaults applied successfully")
+
+
 def should_use_windows_node() -> bool:
     """
     Check if we should use Windows Node.js from WSL.
@@ -251,6 +298,7 @@ def _parse_global_config() -> PlaywrightConfig:
     """
     config: PlaywrightConfig = {}
     _apply_config_overrides(config, "PW_MCP_PROXY_")
+    _apply_stealth_defaults(config, "PW_MCP_PROXY_")
     return config
 
 
@@ -315,6 +363,7 @@ def _parse_pool_config(pool_name: str, global_config: PlaywrightConfig) -> PoolC
     # Start with global config and apply pool-specific overrides
     pool_config = global_config.copy()
     _apply_config_overrides(pool_config, prefix)
+    _apply_stealth_defaults(pool_config, prefix)
 
     # Required pool-level settings
     instances = _get_int_env(f"{prefix}INSTANCES", 0)
@@ -359,6 +408,7 @@ def _parse_instance_config(
     # Start with pool config and apply instance-specific overrides
     instance_config = pool_config.copy()
     _apply_config_overrides(instance_config, prefix)
+    _apply_stealth_defaults(instance_config, prefix)
 
     # Instance-only setting: ALIAS
     alias = os.getenv(f"{prefix}ALIAS")

@@ -104,10 +104,12 @@ PW_MCP_PROXY__DEFAULT__1_TIMEOUT_ACTION=30000
 - `IMAGE_RESPONSES`: Image handling (allow/block)
 
 #### Stealth
-- `STEALTH_MODE`: Enable anti-detection (true/false)
+- `ENABLE_STEALTH`: **Macro** - Auto-configure stealth settings (true/false)
 - `USER_AGENT`: Custom user agent string
 - `INIT_SCRIPT`: Path to custom initialization script
 - `IGNORE_HTTPS_ERRORS`: Ignore HTTPS errors (true/false)
+
+**Note**: `ENABLE_STEALTH=true` automatically configures `INIT_SCRIPT`, `HEADLESS`, and `USER_AGENT` for optimal stealth. Individual settings can override these defaults.
 
 #### Extension Support
 - `EXTENSION`: Enable extension support (true/false)

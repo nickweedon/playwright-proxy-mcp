@@ -143,10 +143,12 @@ Configure the proxy via environment variables in `.env`:
 
 ### Stealth Settings (Anti-Detection)
 
-- `PW_MCP_PROXY_STEALTH_MODE`: Enable built-in stealth mode - default: false
+- `PW_MCP_PROXY_ENABLE_STEALTH`: **Quick enable** - Auto-configure stealth settings - default: false
 - `PW_MCP_PROXY_USER_AGENT`: Custom user agent string - optional
 - `PW_MCP_PROXY_INIT_SCRIPT`: Path to custom init script - optional
 - `PW_MCP_PROXY_IGNORE_HTTPS_ERRORS`: Ignore HTTPS errors - default: false
+
+**Tip**: Simply set `PW_MCP_PROXY_ENABLE_STEALTH=true` to automatically enable anti-detection features!
 
 See [docs/STEALTH.md](docs/STEALTH.md) for detailed stealth configuration.
 
