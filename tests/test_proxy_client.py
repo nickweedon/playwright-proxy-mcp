@@ -230,9 +230,8 @@ class TestPlaywrightProxyClient:
         """Test command building in standard mode."""
         config = {"browser": "firefox", "headless": True, "viewport_size": "1024x768"}
 
-        with patch('playwright_proxy_mcp.playwright.proxy_client.should_use_windows_node', return_value=False):
-            with patch('playwright_proxy_mcp.playwright.proxy_client.shutil.which', return_value='/usr/bin/npx'):
-                command = proxy_client._build_command(config)
+        with patch('playwright_proxy_mcp.playwright.proxy_client.shutil.which', return_value='/usr/bin/npx'):
+            command = proxy_client._build_command(config)
 
         assert command[0] == '/usr/bin/npx'
         assert '@playwright/mcp@latest' in command
@@ -247,11 +246,10 @@ class TestPlaywrightProxyClient:
     @pytest.mark.asyncio
     async def test_build_command_wsl_windows_mode(self, proxy_client):
         """Test command building in WSL-Windows mode."""
-        config = {"browser": "chrome"}
+        config = {"browser": "chrome", "wsl_windows": True}
 
-        with patch('playwright_proxy_mcp.playwright.proxy_client.should_use_windows_node', return_value=True):
-            with patch('playwright_proxy_mcp.playwright.proxy_client.shutil.which', return_value='C:\\Windows\\System32\\cmd.exe'):
-                command = proxy_client._build_command(config)
+        with patch('playwright_proxy_mcp.playwright.proxy_client.shutil.which', return_value='C:\\Windows\\System32\\cmd.exe'):
+            command = proxy_client._build_command(config)
 
         assert 'cmd.exe' in command[0]
         assert '/c' in command
@@ -262,9 +260,8 @@ class TestPlaywrightProxyClient:
         """Test command building with minimal configuration."""
         config = {}
 
-        with patch('playwright_proxy_mcp.playwright.proxy_client.should_use_windows_node', return_value=False):
-            with patch('playwright_proxy_mcp.playwright.proxy_client.shutil.which', return_value='/usr/bin/npx'):
-                command = proxy_client._build_command(config)
+        with patch('playwright_proxy_mcp.playwright.proxy_client.shutil.which', return_value='/usr/bin/npx'):
+            command = proxy_client._build_command(config)
 
         # Should only have npx and package
         assert command == ['/usr/bin/npx', '@playwright/mcp@latest']
@@ -282,9 +279,8 @@ class TestPlaywrightProxyClient:
             "shared_browser_context": True,
         }
 
-        with patch('playwright_proxy_mcp.playwright.proxy_client.should_use_windows_node', return_value=False):
-            with patch('playwright_proxy_mcp.playwright.proxy_client.shutil.which', return_value='/usr/bin/npx'):
-                command = proxy_client._build_command(config)
+        with patch('playwright_proxy_mcp.playwright.proxy_client.shutil.which', return_value='/usr/bin/npx'):
+            command = proxy_client._build_command(config)
 
         assert '--headless' in command
         assert '--no-sandbox' in command
@@ -316,9 +312,8 @@ class TestPlaywrightProxyClient:
             "init_script": "/tmp/init.js",
         }
 
-        with patch('playwright_proxy_mcp.playwright.proxy_client.should_use_windows_node', return_value=False):
-            with patch('playwright_proxy_mcp.playwright.proxy_client.shutil.which', return_value='/usr/bin/npx'):
-                command = proxy_client._build_command(config)
+        with patch('playwright_proxy_mcp.playwright.proxy_client.shutil.which', return_value='/usr/bin/npx'):
+            command = proxy_client._build_command(config)
 
         # Check all key-value pairs
         assert '--browser' in command and 'chromium' in command
@@ -346,9 +341,8 @@ class TestPlaywrightProxyClient:
             "isolated": False,
         }
 
-        with patch('playwright_proxy_mcp.playwright.proxy_client.should_use_windows_node', return_value=False):
-            with patch('playwright_proxy_mcp.playwright.proxy_client.shutil.which', return_value='/usr/bin/npx'):
-                command = proxy_client._build_command(config)
+        with patch('playwright_proxy_mcp.playwright.proxy_client.shutil.which', return_value='/usr/bin/npx'):
+            command = proxy_client._build_command(config)
 
         # False values should not add flags
         assert '--headless' not in command
@@ -363,9 +357,8 @@ class TestPlaywrightProxyClient:
             "user_agent": "",
         }
 
-        with patch('playwright_proxy_mcp.playwright.proxy_client.should_use_windows_node', return_value=False):
-            with patch('playwright_proxy_mcp.playwright.proxy_client.shutil.which', return_value='/usr/bin/npx'):
-                command = proxy_client._build_command(config)
+        with patch('playwright_proxy_mcp.playwright.proxy_client.shutil.which', return_value='/usr/bin/npx'):
+            command = proxy_client._build_command(config)
 
         # Empty strings should not add options
         assert '--device' not in command
@@ -376,19 +369,17 @@ class TestPlaywrightProxyClient:
         """Test error when npx is not found in standard mode."""
         config = {}
 
-        with patch('playwright_proxy_mcp.playwright.proxy_client.should_use_windows_node', return_value=False):
-            with patch('playwright_proxy_mcp.playwright.proxy_client.shutil.which', return_value=None):
-                with pytest.raises(RuntimeError, match="npx not found in PATH"):
-                    proxy_client._build_command(config)
+        with patch('playwright_proxy_mcp.playwright.proxy_client.shutil.which', return_value=None):
+            with pytest.raises(RuntimeError, match="npx not found in PATH"):
+                proxy_client._build_command(config)
 
     def test_build_command_cmd_not_found_wsl_mode(self, proxy_client):
         """Test error when cmd.exe is not found in WSL mode."""
-        config = {}
+        config = {"wsl_windows": True}
 
-        with patch('playwright_proxy_mcp.playwright.proxy_client.should_use_windows_node', return_value=True):
-            with patch('playwright_proxy_mcp.playwright.proxy_client.shutil.which', return_value=None):
-                with pytest.raises(RuntimeError, match="cmd.exe not found in PATH"):
-                    proxy_client._build_command(config)
+        with patch('playwright_proxy_mcp.playwright.proxy_client.shutil.which', return_value=None):
+            with pytest.raises(RuntimeError, match="cmd.exe not found in PATH"):
+                proxy_client._build_command(config)
 
     def test_build_env_minimal(self, proxy_client):
         """Test environment building with minimal config."""
@@ -583,6 +574,55 @@ class TestProxyClientHelperMethods:
         proxy_client._add_stealth_args(command, config)
         assert "--ignore-https-errors" in command
 
+    def test_add_stealth_args_wsl_path_conversion(self, proxy_client):
+        """Test _add_stealth_args converts WSL paths to Windows paths in WSL mode."""
+        command = []
+        config = {
+            "init_script": "/opt/src/test.js",
+            "wsl_windows": True
+        }
+
+        # Mock wslpath conversion
+        with patch('playwright_proxy_mcp.playwright.proxy_client.subprocess.run') as mock_run:
+            mock_result = Mock()
+            mock_result.stdout = "C:\\Users\\test\\test.js\n"
+            mock_run.return_value = mock_result
+
+            proxy_client._add_stealth_args(command, config)
+
+        # Should have converted the path
+        assert "--init-script" in command
+        assert "C:\\Users\\test\\test.js" in command
+        assert "/opt/src/test.js" not in command
+
+    def test_add_stealth_args_no_conversion_in_standard_mode(self, proxy_client):
+        """Test _add_stealth_args does not convert paths in standard mode."""
+        command = []
+        config = {
+            "init_script": "/opt/src/test.js",
+            "wsl_windows": False
+        }
+
+        proxy_client._add_stealth_args(command, config)
+
+        # Should not convert path in standard mode
+        assert "--init-script" in command
+        assert "/opt/src/test.js" in command
+
+    def test_add_stealth_args_no_conversion_for_windows_paths(self, proxy_client):
+        """Test _add_stealth_args does not convert Windows paths in WSL mode."""
+        command = []
+        config = {
+            "init_script": "C:\\Users\\test\\test.js",
+            "wsl_windows": True
+        }
+
+        proxy_client._add_stealth_args(command, config)
+
+        # Should not convert already-Windows path (doesn't start with /)
+        assert "--init-script" in command
+        assert "C:\\Users\\test\\test.js" in command
+
     def test_add_extension_args_with_extension(self, proxy_client):
         """Test _add_extension_args with extension."""
         command = []
@@ -691,16 +731,16 @@ class TestProxyClientBaseCommand:
 
     def test_build_base_command_standard(self, proxy_client):
         """Test _build_base_command in standard mode."""
-        with patch('playwright_proxy_mcp.playwright.proxy_client.should_use_windows_node', return_value=False):
-            with patch('playwright_proxy_mcp.playwright.proxy_client.shutil.which', return_value='/usr/bin/npx'):
-                command = proxy_client._build_base_command()
+        config = {"wsl_windows": False}
+        with patch('playwright_proxy_mcp.playwright.proxy_client.shutil.which', return_value='/usr/bin/npx'):
+            command = proxy_client._build_base_command(config)
         assert command == ['/usr/bin/npx']
 
     def test_build_base_command_wsl(self, proxy_client):
         """Test _build_base_command in WSL mode."""
-        with patch('playwright_proxy_mcp.playwright.proxy_client.should_use_windows_node', return_value=True):
-            with patch('playwright_proxy_mcp.playwright.proxy_client.shutil.which', return_value='/mnt/c/Windows/System32/cmd.exe'):
-                command = proxy_client._build_base_command()
+        config = {"wsl_windows": True}
+        with patch('playwright_proxy_mcp.playwright.proxy_client.shutil.which', return_value='/mnt/c/Windows/System32/cmd.exe'):
+            command = proxy_client._build_base_command(config)
         assert 'cmd.exe' in command[0]
         assert '/c' in command
         assert 'npx.cmd' in command
@@ -730,6 +770,42 @@ class TestProxyClientBaseCommand:
         with patch('playwright_proxy_mcp.playwright.proxy_client.shutil.which', return_value=None):
             with pytest.raises(RuntimeError, match="cmd.exe not found"):
                 proxy_client._build_wsl_windows_command()
+
+    def test_wsl_to_windows_path_success(self, proxy_client):
+        """Test _wsl_to_windows_path successful conversion."""
+        with patch('playwright_proxy_mcp.playwright.proxy_client.subprocess.run') as mock_run:
+            mock_result = Mock()
+            mock_result.stdout = "C:\\Users\\test\\file.txt\n"
+            mock_run.return_value = mock_result
+
+            result = proxy_client._wsl_to_windows_path("/home/user/file.txt")
+
+        assert result == "C:\\Users\\test\\file.txt"
+        mock_run.assert_called_once_with(
+            ["wslpath", "-w", "/home/user/file.txt"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+
+    def test_wsl_to_windows_path_command_error(self, proxy_client):
+        """Test _wsl_to_windows_path handles wslpath command errors."""
+        import subprocess as sp
+        with patch('playwright_proxy_mcp.playwright.proxy_client.subprocess.run') as mock_run:
+            mock_run.side_effect = sp.CalledProcessError(
+                1, "wslpath", stderr="Invalid path"
+            )
+
+            with pytest.raises(RuntimeError, match="Failed to convert WSL path"):
+                proxy_client._wsl_to_windows_path("/invalid/path")
+
+    def test_wsl_to_windows_path_command_not_found(self, proxy_client):
+        """Test _wsl_to_windows_path handles missing wslpath command."""
+        with patch('playwright_proxy_mcp.playwright.proxy_client.subprocess.run') as mock_run:
+            mock_run.side_effect = FileNotFoundError()
+
+            with pytest.raises(RuntimeError, match="wslpath command not found"):
+                proxy_client._wsl_to_windows_path("/home/user/file.txt")
 
 
 class TestProxyClientEdgeCases:

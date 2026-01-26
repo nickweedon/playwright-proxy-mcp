@@ -11,13 +11,14 @@ import asyncio
 import logging
 import os
 import shutil
+import subprocess
 import time
 from typing import Any
 
 from fastmcp.client import Client
 from fastmcp.client.transports import StdioTransport
 
-from .config import PlaywrightConfig, should_use_windows_node
+from .config import PlaywrightConfig
 from .middleware import BinaryInterceptionMiddleware
 from .process_manager import PlaywrightProcessManager
 
@@ -158,7 +159,7 @@ class PlaywrightProxyClient:
             RuntimeError: If required executables are not found
         """
         # Build base command (npx or cmd.exe)
-        command = self._build_base_command()
+        command = self._build_base_command(config)
 
         # Add playwright package
         command.append("@playwright/mcp@latest")
@@ -168,9 +169,12 @@ class PlaywrightProxyClient:
 
         return command
 
-    def _build_base_command(self) -> list[str]:
+    def _build_base_command(self, config: PlaywrightConfig) -> list[str]:
         """
         Build the base command (npx or cmd.exe with npx.cmd).
+
+        Args:
+            config: Playwright configuration
 
         Returns:
             Base command as list of strings
@@ -178,7 +182,7 @@ class PlaywrightProxyClient:
         Raises:
             RuntimeError: If required executable is not found
         """
-        use_windows_node = should_use_windows_node()
+        use_windows_node = config.get("wsl_windows", False)
 
         if use_windows_node:
             return self._build_wsl_windows_command()
@@ -232,6 +236,38 @@ class PlaywrightProxyClient:
         command = [cmd_exe, "/c", "npx.cmd"]
         logger.info(f"Using command: {command}")
         return command
+
+    def _wsl_to_windows_path(self, wsl_path: str) -> str:
+        """
+        Convert WSL path to Windows path using wslpath.
+
+        Args:
+            wsl_path: WSL path (e.g., /opt/src/...)
+
+        Returns:
+            Windows path (e.g., C:\\Users\\...)
+
+        Raises:
+            RuntimeError: If wslpath command fails
+        """
+        try:
+            result = subprocess.run(
+                ["wslpath", "-w", wsl_path],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            windows_path = result.stdout.strip()
+            logger.info(f"Converted WSL path '{wsl_path}' to Windows path '{windows_path}'")
+            return windows_path
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Failed to convert WSL path '{wsl_path}': {e.stderr}")
+            raise RuntimeError(f"Failed to convert WSL path to Windows path: {e.stderr}") from e
+        except FileNotFoundError:
+            logger.error("wslpath command not found")
+            raise RuntimeError(
+                "wslpath command not found. This is required for WSL->Windows mode."
+            )
 
     def _add_config_arguments(self, command: list[str], config: PlaywrightConfig) -> None:
         """
@@ -335,7 +371,14 @@ class PlaywrightProxyClient:
             command.extend(["--user-agent", config["user_agent"]])
 
         if "init_script" in config and config["init_script"]:
-            command.extend(["--init-script", config["init_script"]])
+            init_script_path = config["init_script"]
+
+            # Convert WSL path to Windows path if in WSL->Windows mode
+            use_windows_node = config.get("wsl_windows", False)
+            if use_windows_node and init_script_path.startswith("/"):
+                init_script_path = self._wsl_to_windows_path(init_script_path)
+
+            command.extend(["--init-script", init_script_path])
 
         if "ignore_https_errors" in config and config["ignore_https_errors"]:
             command.append("--ignore-https-errors")
